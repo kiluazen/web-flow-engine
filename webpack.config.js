@@ -28,7 +28,8 @@ module.exports = {
       type: 'umd',
       export: 'default'
     },
-    globalObject: 'this'
+    globalObject: 'this',
+    clean: true
   },
   plugins: [
     new CopyPlugin({
@@ -36,5 +37,10 @@ module.exports = {
         { from: 'assets', to: 'assets' }
       ]
     })
-  ]
+  ],
+  devtool: 'source-map',
+  optimization: {
+    minimize: false,
+    moduleIds: 'named',
+  }
 }; 
