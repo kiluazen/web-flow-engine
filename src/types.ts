@@ -1,6 +1,7 @@
 export interface CursorFlowOptions {
     apiUrl: string;
     theme?: ThemeOptions;
+    organizationId: string;
     buttonText?: string;
     guidesButtonText?: string;
     debug?: boolean;

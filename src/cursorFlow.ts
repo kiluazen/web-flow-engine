@@ -30,7 +30,7 @@ export default class CursorFlow {
       };
       
       // Create API client
-      this.apiClient = new ApiClient(this.options.apiUrl);
+      this.apiClient = new ApiClient(this.options.apiUrl, this.options.organizationId);
       
       // Initialize empty state
       this.state = {

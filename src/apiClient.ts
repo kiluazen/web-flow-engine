@@ -3,9 +3,11 @@ import axios, { AxiosInstance } from 'axios';
 export class ApiClient {
   private baseUrl: string;
   private client: AxiosInstance;
+  private organizationId: string;
   
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, organizationId: string) {
     this.baseUrl = baseUrl;
+    this.organizationId = organizationId;
     this.client = axios.create({
       baseURL: baseUrl,
       timeout: 10000,
@@ -20,7 +22,9 @@ export class ApiClient {
    */
   async getRecording(id: string): Promise<any> {
     try {
-      const response = await this.client.get(`/api/recordings/${id}`);
+      const response = await this.client.get(`/api/recordings/${id}`, {
+        params: { organizationId: this.organizationId }
+      });
       return response.data; // The flow data is returned directly now
     } catch (error) {
       console.error('Failed to fetch flow:', error);
@@ -33,7 +37,9 @@ export class ApiClient {
    */
   async getRecordings(): Promise<any> {
     try {
-      const response = await this.client.get('/api/recordings');
+      const response = await this.client.get('/api/recordings', {
+        params: { organizationId: this.organizationId }
+      });
       return response.data.flows; // API now returns 'flows' instead of 'recordings'
     } catch (error) {
       console.error('Failed to fetch flows list:', error);
@@ -80,7 +86,9 @@ export class ApiClient {
    */
   async validateRecording(id: string): Promise<boolean> {
     try {
-      const response = await this.client.get(`/api/recordings/${id}/validate`);
+      const response = await this.client.get(`/api/recordings/${id}/validate`, {
+        params: { organizationId: this.organizationId }
+      });
       return response.data.valid;
     } catch (error) {
       return false;
