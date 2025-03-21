@@ -1,66 +1,95 @@
 export class ElementUtils {
     static findElementFromInteraction(interaction: any, requireExactMatch: boolean = true): HTMLElement | null {
-      if (!interaction) {
-        console.error("Invalid interaction data", interaction);
-        return null;
-      }
-
-      console.log('Finding element for interaction:', interaction);
+      if (!interaction) return null;
       
       try {
-        let element = null;
+        // Get element data if available
+        const element = interaction.element || {};
         
-        // Strategy 1: Try by selector if provided
-        if (interaction.selector) {
+        // STRATEGY 1: CSS Selector (fastest)
+        if (element.cssSelector) {
           try {
-            element = document.querySelector(interaction.selector) as HTMLElement;
-            if (element) {
-              console.log('Found element by selector');
+            const foundElement = document.querySelector(element.cssSelector) as HTMLElement;
+            if (foundElement) {
+              return foundElement; // Fast exit!
             }
           } catch (e) {
-            console.warn('Invalid selector', interaction.selector, e);
+            // Invalid selector, continue
           }
         }
         
-        // Strategy 2: Try by text content
-        if ((!element || requireExactMatch) && interaction.text) {
-          const textContent = interaction.text.trim();
+        // STRATEGY 2: Attribute selector for links (very fast for common case)
+        if (element.tagName === 'A' && element.attributes) {
+          try {
+            const attrs = typeof element.attributes === 'string' 
+              ? JSON.parse(element.attributes) 
+              : element.attributes;
+              
+            if (attrs.href) {
+              const foundElement = document.querySelector(`a[href="${attrs.href}"]`) as HTMLElement;
+              if (foundElement) {
+                return foundElement; // Fast exit!
+              }
+            }
+          } catch (e) {
+            // Invalid attributes, continue
+          }
+        }
+        
+        // STRATEGY 3: Interactive element + exact text (good balance of speed & reliability)
+        const textContent = (element.textContent || interaction.text || '').trim();
+        if (textContent) {
+          // Target the most likely elements first
+          const selector = element.tagName 
+            ? element.tagName.toLowerCase() 
+            : 'a, button, [role="button"], input[type="submit"]';
+            
+          // Use faster getElementsByTagName when possible
+          let candidates: Element[] = [];
+          if (selector === 'a') {
+            candidates = Array.from(document.getElementsByTagName('a'));
+          } else if (selector === 'button') {
+            candidates = Array.from(document.getElementsByTagName('button'));
+          } else {
+            candidates = Array.from(document.querySelectorAll(selector));
+          }
           
-          // Try exact text match on buttons and links
-          const textElements = this.querySelectorAllWithText('a, button, [role="button"], .btn', textContent, true);
+          // Find exact text match
+          const foundElement = candidates.find(el => 
+            el.textContent?.trim() === textContent
+          ) as HTMLElement;
           
-          if (textElements.length === 1) {
-            console.log('Found element by exact text match');
-            element = textElements[0] as HTMLElement;
-          } else if (textElements.length > 1) {
-            // Multiple matches, try to find the most visible one
-            console.log('Found multiple elements with text:', textContent);
-            // Just take the first one for simplicity
-            element = textElements[0] as HTMLElement;
-          } else if (!requireExactMatch) {
-            // Try partial text match if exact match not required
-            const partialMatches = this.querySelectorAllWithText('a, button, [role="button"], .btn', textContent, false);
-            if (partialMatches.length > 0) {
-              console.log('Found element by partial text match');
-              element = partialMatches[0] as HTMLElement;
+          if (foundElement) {
+            return foundElement; // Fast exit!
+          }
+          
+          // Only try partial match if exact match is not required
+          if (!requireExactMatch) {
+            const partialMatch = candidates.find(el => 
+              el.textContent?.trim().toLowerCase().includes(textContent.toLowerCase())
+            ) as HTMLElement;
+            
+            if (partialMatch) {
+              return partialMatch; // Fast exit!
             }
           }
         }
         
-        // Strategy 3: If still not found and not requiring exact match, try broader search
-        if (!element && !requireExactMatch && interaction.text) {
-          const elements = this.querySelectorAllWithText('*', interaction.text, false);
-          if (elements.length > 0) {
-            console.log('Found element by broader text search');
-            element = elements[0] as HTMLElement;
+        // FALLBACK STRATEGY: Only if everything else failed
+        // This prevents excessive DOM searching for most cases
+        if (interaction.selector) {
+          try {
+            const foundElement = document.querySelector(interaction.selector) as HTMLElement;
+            if (foundElement) {
+              return foundElement;
+            }
+          } catch (e) {
+            // Invalid selector, continue
           }
         }
         
-        if (!element) {
-          console.warn('Could not find element for', interaction);
-        }
-        
-        return element;
+        // No element found after all strategies
+        return null;
       } catch (error) {
         console.error("Error finding element:", error);
         return null;
