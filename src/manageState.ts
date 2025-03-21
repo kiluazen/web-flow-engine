@@ -7,6 +7,10 @@ export class StateManager {
     private static readonly STATE_VERSION = '1.0';
     private static readonly EXPIRY_TIME = 24 * 60 * 60 * 1000; // 24 hours
   
+    // New debounce mechanism
+    private static debounceTimeout: number | null = null;
+    private static pendingState: CursorFlowState | null = null;
+  
     static save(state: CursorFlowState): void {
       try {
         if (!state) {
@@ -22,9 +26,55 @@ export class StateManager {
         
         const stateString = JSON.stringify(stateWithMeta);
         localStorage.setItem(this.STORAGE_KEY, stateString);
-        console.log('State saved:', stateString);
+        
+        // Replace the debug check with this
+        const shouldLog = 'debug' in state ? state.debug : false;
+        if (shouldLog) {
+          console.log('State saved:', stateString);
+        }
       } catch (error) {
         console.error('Failed to save state:', error);
+      }
+    }
+  
+    // New method: debounced save
+    static saveWithDebounce(state: CursorFlowState, immediate = false): void {
+      // Always store the latest state
+      this.pendingState = {...state};
+      
+      // If immediate flag is set, save right away
+      if (immediate) {
+        if (this.debounceTimeout !== null) {
+          clearTimeout(this.debounceTimeout);
+          this.debounceTimeout = null;
+        }
+        this.save(this.pendingState);
+        this.pendingState = null;
+        return;
+      }
+      
+      // Otherwise, set up debounced save
+      if (this.debounceTimeout === null) {
+        this.debounceTimeout = window.setTimeout(() => {
+          if (this.pendingState) {
+            this.save(this.pendingState);
+            this.pendingState = null;
+          }
+          this.debounceTimeout = null;
+        }, 300); // 300ms debounce time
+      }
+    }
+
+    // If navigation happens unexpectedly, flush any pending state
+    static flushPendingSave(): void {
+      if (this.pendingState) {
+        this.save(this.pendingState);
+        this.pendingState = null;
+      }
+      
+      if (this.debounceTimeout !== null) {
+        clearTimeout(this.debounceTimeout);
+        this.debounceTimeout = null;
       }
     }
   
@@ -68,6 +118,13 @@ export class StateManager {
     }
   
     static clear(): void {
+      // Make sure to cancel any pending saves
+      if (this.debounceTimeout !== null) {
+        clearTimeout(this.debounceTimeout);
+        this.debounceTimeout = null;
+      }
+      this.pendingState = null;
+      
       try {
         localStorage.removeItem(this.STORAGE_KEY);
       } catch (error) {

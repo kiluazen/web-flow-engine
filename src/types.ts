@@ -15,6 +15,7 @@ export interface CursorFlowOptions {
     customizations?: any[];
     completedSteps: number[];
     timestamp: number;
+    debug?: boolean;
   }
   
   export interface ThemeOptions {

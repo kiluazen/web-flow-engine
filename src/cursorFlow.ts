@@ -18,6 +18,8 @@ export default class CursorFlow {
     private guides: any[] = [];
     private autoProgressTimeout: any = null;
     private startButton: HTMLElement | null = null;
+    private sortedSteps: any[] = [];
+    private isHandlingNavigation = false;
   
     constructor(options: CursorFlowOptions) {
       // Initialize with default options
@@ -96,6 +98,13 @@ export default class CursorFlow {
         
         // Add the start button to the page
         this.createStartButton();
+        
+        // Add a window event listener to flush state on page unload
+        window.addEventListener('beforeunload', () => {
+          if (this.state.isPlaying) {
+            StateManager.flushPendingSave();
+          }
+        });
         
         return true;
       } catch (error) {
@@ -206,6 +215,15 @@ export default class CursorFlow {
         
         // Store the recording
         this.recording = flowData;
+        
+        // Pre-sort steps once and cache them 
+        if (this.recording && this.recording.steps) {
+          console.time('Sort steps');
+          this.sortedSteps = [...this.recording.steps].sort((a, b) => {
+            return (a.position || 0) - (b.position || 0);
+          });
+          console.timeEnd('Sort steps');
+        }
         
         // MODIFICATION: For a guide selected from the dropdown, always start fresh
         // Clear any previous state for this guide ID
@@ -385,10 +403,11 @@ export default class CursorFlow {
         currentStep: 0,
         recordingId: null,
         completedSteps: [],
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        debug: this.options.debug
       };
       
-      // Clear storage
+      // Use immediate clear instead of debounced save
       StateManager.clear();
       StateManager.clearSession();
       
@@ -411,6 +430,15 @@ export default class CursorFlow {
         // Store the recording
         this.recording = flowData;
         
+        // Pre-sort steps once and cache them 
+        if (this.recording && this.recording.steps) {
+          console.time('Sort steps');
+          this.sortedSteps = [...this.recording.steps].sort((a, b) => {
+            return (a.position || 0) - (b.position || 0);
+          });
+          console.timeEnd('Sort steps');
+        }
+        
         // Preserve completedSteps when it's the same recording ID
         const preserveSteps = this.state.recordingId === recordingId ? this.state.completedSteps : [];
         
@@ -420,8 +448,8 @@ export default class CursorFlow {
         this.state.currentStep = 0;
         this.state.completedSteps = preserveSteps;
         
-        // Save state
-        StateManager.save(this.state);
+        // Save state immediately since this is an important transition
+        StateManager.saveWithDebounce(this.state, true);
         
         if (this.options.debug) {
           console.log('Recording loaded:', recordingId, flowData);
@@ -480,25 +508,21 @@ export default class CursorFlow {
     }
   
     private async detectCurrentContext() {
-      if (!this.recording || !this.recording.steps || this.recording.steps.length === 0) {
+      if (!this.recording || !this.sortedSteps.length) {
         return null;
       }
       
       const currentUrl = window.location.href;
       const currentPath = window.location.pathname;
-      console.log('DETECT CONTEXT: Current URL:', currentUrl, 'Path:', currentPath);
       
-      // Log all steps so we can verify their structure
-      console.log('DETECT CONTEXT: All steps:', this.recording.steps.map((step: any) => ({
-        position: step.position,
-        interactionData: step.interaction,
-        pageInfo: step.interaction?.pageInfo,
-        interactionType: step.interaction?.type,
-        annotation: step.annotation
-      })));
+      if (this.options.debug) {
+        console.log('DETECT CONTEXT: Current URL:', currentUrl, 'Path:', currentPath);
+      }
       
-      // Find steps that match the current URL
-      const matchingSteps = this.recording.steps.filter((step: any) => {
+      // Find steps that match the current URL without excessive logging
+      console.time('Find matching steps');
+      // Use cached sortedSteps instead of re-filtering recording.steps
+      const matchingSteps = this.sortedSteps.filter((step: any) => {
         // The pageInfo is inside the interaction object
         const pageInfo = step.interaction?.pageInfo;
         
@@ -506,76 +530,50 @@ export default class CursorFlow {
         const stepUrl = pageInfo?.url;
         const stepPath = pageInfo?.path;
         
-        let urlMatches = false;
-        let pathMatches = false;
+        // Check for matches - simplified logic
+        const urlMatches = stepUrl ? ElementUtils.compareUrls(stepUrl, currentUrl) : false;
+        const pathMatches = stepPath === currentPath;
         
-        // Check URL match if available
-        if (stepUrl) {
-          urlMatches = ElementUtils.compareUrls(stepUrl, currentUrl);
-          console.log('DETECT CONTEXT: Step URL check:', {
-            position: step.position,
-            stepUrl: stepUrl,
-            matches: urlMatches
-          });
-        }
-        
-        // Check path match if available
-        if (stepPath) {
-          pathMatches = stepPath === currentPath;
-          console.log('DETECT CONTEXT: Step path check:', {
-            position: step.position,
-            stepPath,
-            currentPath,
-            matches: pathMatches
-          });
-        }
-        
-        // Match if either URL or path matches
-        const matches = urlMatches || pathMatches;
-        console.log(`DETECT CONTEXT: Step ${step.position} matches: ${matches}`);
-        return matches;
+        // Return true if either URL or path matches
+        return urlMatches || pathMatches;
       });
+      console.timeEnd('Find matching steps');
       
       if (matchingSteps.length === 0) {
-        // No matching steps for this URL
-        console.log('DETECT CONTEXT: No steps match current URL or path', { 
-          currentUrl,
-          currentPath,
-          completedSteps: this.state.completedSteps
-        });
+        if (this.options.debug) {
+          console.log('DETECT CONTEXT: No steps match current URL or path');
+        }
         return null;
       }
       
-      console.log('DETECT CONTEXT: Found matching steps:', matchingSteps.length);
-      
+      console.time('Find uncompleted step');
       // Find the earliest uncompleted step for this URL
       const uncompletedSteps = matchingSteps.filter((step: any) => {
-        const stepIndex = step.position || this.recording.steps.indexOf(step);
-        const isCompleted = this.state.completedSteps.includes(stepIndex);
-        console.log(`DETECT CONTEXT: Step ${stepIndex} completion status:`, isCompleted);
-        return !isCompleted;
+        const stepIndex = step.position || 0;
+        return !this.state.completedSteps.includes(stepIndex);
       });
       
       if (uncompletedSteps.length > 0) {
-        // Return earliest uncompleted step by position value
-        const earliestStep = uncompletedSteps.sort((a: any, b: any) => {
-          return (a.position || 0) - (b.position || 0);
-        })[0];
-        
-        console.log('DETECT CONTEXT: Found matching uncompleted step:', earliestStep);
+        // Get earliest uncompleted step by position
+        // The steps are already sorted, so just take the first one
+        const earliestStep = uncompletedSteps[0];
+        console.timeEnd('Find uncompleted step');
         return earliestStep;
       }
       
-      // All steps for this URL are completed,
-      // return the last step for this URL for navigation context
-      const lastStep = matchingSteps.sort((a: any, b: any) => {
-        return (b.position || 0) - (a.position || 0);
-      })[0];
-      console.log('DETECT CONTEXT: All steps completed for this URL, returning last step:', lastStep);
-      
-      return lastStep;
+      // All steps for this URL are completed, return the last step for navigation context
+      // Since we know sortedSteps is sorted by position, we can use the last matching step
+      console.timeEnd('Find uncompleted step');
+      return matchingSteps[matchingSteps.length - 1];
     }
   
+    // Add this helper method for debug logging
+    private debugLog(...args: any[]): void {
+      if (this.options.debug) {
+        console.log(...args);
+      }
+    }
+    
     private async playCurrentStep() {
       if (!this.recording || !this.state.isPlaying) {
         console.warn('No active recording or not in playing state');
@@ -587,13 +585,8 @@ export default class CursorFlow {
       if (this.recording.steps && this.recording.steps.length > 0) {
         // If this is position-based, find by position, otherwise use index
         if (this.recording.steps[0].position !== undefined) {
-          // Sort steps by position
-          const sortedSteps = [...this.recording.steps].sort((a, b) => {
-            return (a.position || 0) - (b.position || 0);
-          });
-          
           // Find first uncompleted step
-          for (const step of sortedSteps) {
+          for (const step of this.sortedSteps) {
             const stepIndex = step.position;
             if (!this.state.completedSteps.includes(stepIndex)) {
               currentStep = step;
@@ -602,8 +595,8 @@ export default class CursorFlow {
           }
           
           // If all steps completed, use the last one
-          if (!currentStep && sortedSteps.length > 0) {
-            currentStep = sortedSteps[sortedSteps.length - 1];
+          if (!currentStep && this.sortedSteps.length > 0) {
+            currentStep = this.sortedSteps[this.sortedSteps.length - 1];
           }
         } else {
           // Use index-based approach
@@ -616,28 +609,28 @@ export default class CursorFlow {
         return false;
       }
       
-      if (this.options.debug) {
-        console.log('Playing step:', currentStep);
-      }
+      this.debugLog('Playing step:', currentStep);
       
       // Find target element from interaction data
       const interaction = currentStep.interaction || {};
-      console.log('DEBUG: Full interaction object:', JSON.stringify(interaction));
+      this.debugLog('Full interaction object:', JSON.stringify(interaction));
       
       // Support both interaction.element.textContent and interaction.text
       if (interaction.element?.textContent) {
-        console.log('Using element textContent for finding:', interaction.element.textContent);
+        this.debugLog('Using element textContent for finding:', interaction.element.textContent);
         interaction.text = interaction.element.textContent;
       }
       
       // Add debugging for element finding
-      console.log('Looking for element with properties:', JSON.stringify({
+      this.debugLog('Looking for element with properties:', JSON.stringify({
         text: interaction.text,
         selector: interaction.selector,
         action: interaction.action || 'click'
       }));
       
+      console.time('Find target element');
       this.currentTargetElement = ElementUtils.findElementFromInteraction(interaction);
+      console.timeEnd('Find target element');
       
       if (!this.currentTargetElement) {
         console.warn('Target element not found for step:', currentStep);
@@ -647,13 +640,15 @@ export default class CursorFlow {
         return false;
       }
       
-      console.log('Found target element:', this.currentTargetElement.outerHTML);
+      this.debugLog('Found target element:', this.currentTargetElement.outerHTML);
       
-      // Show visual elements
+      console.time('Show visual elements');
       await this.showVisualElements(this.currentTargetElement, interaction);
+      console.timeEnd('Show visual elements');
       
-      // Set up interaction tracking
+      console.time('Setup interaction tracking');
       this.setupElementInteractionTracking(this.currentTargetElement, interaction);
+      console.timeEnd('Setup interaction tracking');
       
       return true;
     }
@@ -751,60 +746,60 @@ export default class CursorFlow {
     }
   
     private handleNavigation(continueThroughSteps = false) {
-      if (!this.state.isPlaying) {
-        console.log('handleNavigation: Not playing, returning early');
+      if (!this.state.isPlaying || this.isHandlingNavigation) {
+        console.log('handleNavigation: Not playing or already handling, returning early');
         return;
       }
       
+      this.isHandlingNavigation = true;
       console.log('handleNavigation: Current URL:', window.location.href);
+      console.time('Navigation handling');
       
+      // Use an even shorter timeout
       setTimeout(async () => {
         try {
+          console.time('Check completed steps');
           // Check if we have completed the previous step and moved to a new URL
-          // that matches the next expected step
           if (this.state.completedSteps.length > 0) {
             const lastCompletedPosition = this.state.completedSteps[this.state.completedSteps.length - 1];
-            console.log('handleNavigation: Last completed step position:', lastCompletedPosition);
+            const currentPath = window.location.pathname;
             
-            // Find all steps with positions greater than the last completed
-            const possibleNextSteps = this.recording.steps.filter((step: any) => {
+            // Find next step more efficiently using array method instead of a loop
+            const nextStepIndex = this.sortedSteps.findIndex((step: any) => {
               const stepPosition = step.position || 0;
               return stepPosition > lastCompletedPosition && 
                     !this.state.completedSteps.includes(stepPosition);
-            }).sort((a: any, b: any) => (a.position || 0) - (b.position || 0));
+            });
             
-            if (possibleNextSteps.length > 0) {
-              const nextExpectedStep = possibleNextSteps[0];
-              console.log('handleNavigation: Next expected step:', nextExpectedStep);
+            if (nextStepIndex >= 0) {
+              const nextExpectedStep = this.sortedSteps[nextStepIndex];
               
-              // Get URL and path from interaction.pageInfo
-              const pageInfo = nextExpectedStep.interaction?.pageInfo;
-              const nextStepUrl = pageInfo?.url;
-              const nextStepPath = pageInfo?.path;
-              const currentPath = window.location.pathname;
+              // Check path directly without unnecessary operations
+              const nextStepPath = nextExpectedStep.interaction?.pageInfo?.path;
               
-              console.log('handleNavigation: Next step URL data:', {
-                pageInfo,
-                nextStepUrl,
-                nextStepPath,
-                currentPath
-              });
-              
-              // Check if current URL matches what we expect for the next step
+              // Fast path check
               if (nextStepPath && nextStepPath === currentPath) {
-                console.log('handleNavigation: Current path matches expected next step path:', nextStepPath);
+                console.log('handleNavigation: Path match found');
                 this.state.currentStep = this.recording.steps.indexOf(nextExpectedStep);
+                console.timeEnd('Check completed steps');
+                console.time('Play step');
                 await this.playCurrentStep();
+                console.timeEnd('Play step');
+                console.timeEnd('Navigation handling');
+                this.isHandlingNavigation = false;
                 return;
-              } else {
-                console.log('handleNavigation: Path mismatch - Expected:', nextStepPath, 'Current:', currentPath);
               }
             }
           }
+          console.timeEnd('Check completed steps');
           
+          // Only run detectCurrentContext if needed
+          console.time('Detect context');
           const contextStep = await this.detectCurrentContext();
+          console.timeEnd('Detect context');
           
           if (contextStep) {
+            console.time('Process context step');
             // Found a matching step for this URL
             console.log('handleNavigation: Found matching step for this URL');
             const stepIndex = contextStep.position || this.recording.steps.indexOf(contextStep);
@@ -818,13 +813,7 @@ export default class CursorFlow {
               await this.playCurrentStep();
             } else {
               // Forward navigation - check if prerequisites are met
-              const sortedSteps = [...this.recording.steps].sort((a, b) => {
-                return (a.position || 0) - (b.position || 0);
-              });
-              
-              // NEW: More strict prerequisite checking
-              // All steps with position less than current must be completed
-              const prerequisitesMet = sortedSteps.every(step => {
+              const prerequisitesMet = this.sortedSteps.every((step: any) => {
                 const position = step.position || 0;
                 return position >= stepIndex || this.state.completedSteps.includes(position);
               });
@@ -836,8 +825,8 @@ export default class CursorFlow {
               } else {
                 console.log('handleNavigation: Prerequisites not met, showing warning');
                 
-                // NEW: More informative warning with redirect option
-                const firstIncompleteStep = sortedSteps.find(step => {
+                // Find first incomplete step more efficiently
+                const firstIncompleteStep = this.sortedSteps.find((step: any) => {
                   const position = step.position || 0;
                   return position < stepIndex && !this.state.completedSteps.includes(position);
                 });
@@ -857,53 +846,42 @@ export default class CursorFlow {
                   });
                 }
                 
-                // NEW: Stop the guide if user is trying to skip steps
                 this.stop();
               }
             }
+            console.timeEnd('Process context step');
           } else {
             console.log('handleNavigation: No matching steps for this URL');
             
-            // Check if all steps are completed before showing "navigated away"
-            if (this.state.isPlaying) {
-              // Get all steps
-              const allSteps = this.recording.steps || [];
-              
-              // Check if all steps are completed
-              const allCompleted = allSteps.every((step: any) => {
-                const stepPosition = step.position || 0;
-                return this.state.completedSteps.includes(stepPosition);
+            // Check if all steps are completed
+            console.time('Check completion');
+            const allSteps = this.recording.steps || [];
+            const allCompleted = allSteps.every((step: any) => {
+              const stepPosition = step.position || 0;
+              return this.state.completedSteps.includes(stepPosition);
+            });
+            
+            if (allCompleted && allSteps.length > 0) {
+              console.log('handleNavigation: All guide steps completed');
+              this.completeGuide();
+            } else {
+              // Navigated away
+              CursorFlowUI.showNotification({
+                message: 'You\'ve navigated away from the guide path',
+                type: 'warning',
+                autoClose: 5000
               });
-              
-              console.log('handleNavigation: All steps completed check:', { 
-                allCompleted,
-                stepsCount: allSteps.length,
-                completedCount: this.state.completedSteps.length
-              });
-              
-              if (allCompleted && allSteps.length > 0) {
-                // All steps are completed, show completion message
-                console.log('handleNavigation: All guide steps completed, showing success message');
-                
-                // Call the completeGuide method
-                this.completeGuide();
-              } else {
-                // Genuinely navigated away
-                CursorFlowUI.showNotification({
-                  message: 'You\'ve navigated away from the guide path',
-                  type: 'warning',
-                  autoClose: 5000
-                });
-                
-                // Stop the guide
-                this.stop();
-              }
+              this.stop();
             }
+            console.timeEnd('Check completion');
           }
         } catch (error) {
           console.error('Error handling navigation:', error);
+        } finally {
+          console.timeEnd('Navigation handling');
+          this.isHandlingNavigation = false;
         }
-      }, 300);
+      }, 50); // Even shorter timeout
     }
   
     private setupElementInteractionTracking(element: HTMLElement, interaction: any) {
@@ -956,8 +934,8 @@ export default class CursorFlow {
           if (isNavigationLink) {
             console.log('Navigation link detected, letting natural navigation occur');
             
-            // Save state before navigation
-            StateManager.save(this.state);
+            // Save state immediately before navigation
+            StateManager.saveWithDebounce(this.state, true);
             
             // Clean up for navigation
             this.hideVisualElements();
@@ -1105,21 +1083,17 @@ export default class CursorFlow {
   
     // Add this method to find the next logical step based on completed steps
     private findNextStep(): any {
-      if (!this.recording || !this.recording.steps || this.recording.steps.length === 0) {
+      if (!this.recording || this.sortedSteps.length === 0) {
         console.log('findNextStep: No recording or steps available');
         return null;
       }
       
-      // Sort steps by position
-      const sortedSteps = [...this.recording.steps].sort((a, b) => {
-        return (a.position || 0) - (b.position || 0);
-      });
-      
+      // No need to sort again - use cached sorted steps
       console.log('findNextStep: Looking for next step. Completed steps:', this.state.completedSteps);
       
       // Find first uncompleted step
-      for (const step of sortedSteps) {
-        const stepIndex = step.position || sortedSteps.indexOf(step);
+      for (const step of this.sortedSteps) {
+        const stepIndex = step.position || this.sortedSteps.indexOf(step);
         
         if (!this.state.completedSteps.includes(stepIndex)) {
           console.log('findNextStep: Found next uncompleted step:', {
@@ -1142,7 +1116,9 @@ export default class CursorFlow {
       
       // Update state to completed
       this.state.isPlaying = false;
-      StateManager.save(this.state);
+      
+      // Save state immediately since this is the final state
+      StateManager.saveWithDebounce(this.state, true);
       
       // Show completion popup near the guide button
       if (this.startButton) {
@@ -1179,7 +1155,9 @@ export default class CursorFlow {
       // Don't add duplicates
       if (!this.state.completedSteps.includes(stepIndex)) {
         this.state.completedSteps.push(stepIndex);
-        StateManager.save(this.state);
+        
+        // Use debounced save instead of immediate save
+        StateManager.saveWithDebounce(this.state);
         
         if (this.options.debug) {
           console.log('Step completed:', stepIndex);
@@ -1204,21 +1182,19 @@ export default class CursorFlow {
       if (this.recording && this.recording.steps && this.recording.steps.length > 0) {
         // If this is position-based, get the current position
         if (this.recording.steps[0].position !== undefined) {
-          const sortedSteps = [...this.recording.steps].sort((a, b) => {
-            return (a.position || 0) - (b.position || 0);
-          });
+          // Use cached sortedSteps instead of resorting
           
           // Find current step by index
-          const currentStep = sortedSteps[currentStepIndex];
+          const currentStep = this.sortedSteps[currentStepIndex];
           if (currentStep) {
             currentStepPosition = currentStep.position;
           }
           
-          // NEW: Ensure we get the immediate next step (not skipping any)
+          // Find next step using the cached sortedSteps
           let nextPosition = Number.MAX_SAFE_INTEGER;
           let nextStep = null;
           
-          for (const step of sortedSteps) {
+          for (const step of this.sortedSteps) {
             const stepPos = step.position || 0;
             // Find the next position that's greater than current but smaller than any we've found so far
             if (stepPos > currentStepPosition && stepPos < nextPosition && 
@@ -1230,8 +1206,10 @@ export default class CursorFlow {
           
           if (nextStep) {
             // Update current step in state
-            this.state.currentStep = sortedSteps.indexOf(nextStep);
-            StateManager.save(this.state);
+            this.state.currentStep = this.sortedSteps.indexOf(nextStep);
+            
+            // Use debounced save instead of immediate save
+            StateManager.saveWithDebounce(this.state);
             
             // Play the new current step
             await this.playCurrentStep();
@@ -1248,7 +1226,7 @@ export default class CursorFlow {
             return false;
           }
           
-          StateManager.save(this.state);
+          StateManager.saveWithDebounce(this.state);  // Use debounced save here too
           await this.playCurrentStep();
           return true;
         }

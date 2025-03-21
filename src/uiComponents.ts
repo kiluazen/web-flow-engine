@@ -233,8 +233,8 @@ export class CursorFlowUI {
     highlight.style.boxSizing = 'border-box';
     highlight.style.pointerEvents = 'none';
     highlight.style.zIndex = '9998';
-    highlight.style.border = `2px solid ${theme?.highlightBorderColor || '#4285f4'}`;
-    highlight.style.backgroundColor = theme?.highlightColor || 'rgba(66, 133, 244, 0.1)';
+    highlight.style.border = `2px solid ${theme?.highlightBorderColor || '#FF6B00'}`;
+    highlight.style.backgroundColor = theme?.highlightColor || 'rgba(255, 107, 0, 0.1)';
     highlight.style.borderRadius = '3px';
     highlight.style.transition = 'all 0.3s ease-in-out';
     
@@ -245,43 +245,20 @@ export class CursorFlowUI {
     const popup = document.createElement('div');
     popup.className = 'hyphen-text-popup';
     
-    // Style the popup
+    // Simplified styles - just what's needed
     popup.style.position = 'absolute';
     popup.style.zIndex = '10000';
     popup.style.backgroundColor = '#ffffff';
     popup.style.color = '#333333';
-    popup.style.padding = '12px 16px';
-    popup.style.borderRadius = '6px';
-    popup.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-    popup.style.minWidth = '180px';
-    popup.style.width = 'auto';
-    popup.style.maxWidth = '280px';
+    popup.style.padding = '8px 12px';
+    popup.style.borderRadius = '4px';
+    popup.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
     popup.style.fontSize = '14px';
-    popup.style.lineHeight = '1.5';
-    popup.style.transition = 'opacity 0.3s ease';
-    popup.style.textAlign = 'center';
+    popup.style.maxWidth = '300px';
+    popup.style.whiteSpace = 'nowrap'; // Keep short text on one line
     
-    // Use a div with explicit styling for text content
-    const textContainer = document.createElement('div');
-    textContainer.textContent = text;
-    textContainer.style.margin = '0';
-    textContainer.style.padding = '0';
-    textContainer.style.whiteSpace = 'normal';
-    textContainer.style.wordWrap = 'break-word';
-    textContainer.style.wordBreak = 'normal';
-    textContainer.style.display = 'block';
-    popup.appendChild(textContainer);
-    
-    // Add a subtle arrow pointing to the element
-    const arrow = document.createElement('div');
-    arrow.style.position = 'absolute';
-    arrow.style.bottom = '100%';
-    arrow.style.left = '50%';
-    arrow.style.marginLeft = '-8px';
-    arrow.style.borderLeft = '8px solid transparent';
-    arrow.style.borderRight = '8px solid transparent';
-    arrow.style.borderBottom = '8px solid #ffffff';
-    popup.appendChild(arrow);
+    // Set text directly - no nested divs
+    popup.textContent = text;
     
     return popup;
   }
@@ -366,23 +343,23 @@ export class CursorFlowUI {
     // Get cursor position
     const cursorRect = cursor.getBoundingClientRect();
     
-    // Position popup below the cursor
-    popup.style.left = `${cursorRect.left}px`;
-    popup.style.top = `${cursorRect.bottom + 10}px`; // 10px below cursor
+    // Position popup at the cursor's tip
+    popup.style.left = `${cursorRect.right - 8}px`; // Adjust for cursor tip
+    popup.style.top = `${cursorRect.bottom - 8}px`; // Adjust for cursor tip
     
-    // Make sure it's visible on screen
+    // Viewport boundary checks
     const popupRect = popup.getBoundingClientRect();
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
     
     // Adjust horizontal position if off-screen
     if (popupRect.right > viewportWidth) {
-      popup.style.left = `${viewportWidth - popupRect.width - 10}px`;
+      popup.style.left = `${cursorRect.left - popupRect.width - 5}px`;
     }
     
     // Adjust vertical position if off-screen
     if (popupRect.bottom > viewportHeight) {
-      popup.style.top = `${cursorRect.top - popupRect.height - 10}px`; // 10px above cursor
+      popup.style.top = `${cursorRect.top - popupRect.height - 5}px`;
     }
   }
 
@@ -612,12 +589,12 @@ export class CursorFlowUI {
     // Add the highlight to the wrapper
     wrapper.appendChild(highlight);
     
-    // Position the highlight to fill the wrapper
+    // Position the highlight with a small padding
     highlight.style.position = 'absolute';
-    highlight.style.left = '0';
-    highlight.style.top = '0';
-    highlight.style.width = '100%';
-    highlight.style.height = '100%';
+    highlight.style.left = '-4px';  // 4px padding on left
+    highlight.style.top = '-4px';   // 4px padding on top
+    highlight.style.width = 'calc(100% + 8px)';  // Add 8px (4px on each side)
+    highlight.style.height = 'calc(100% + 8px)'; // Add 8px (4px on each side)
     
     // Add the wrapper to the document
     document.body.appendChild(wrapper);
@@ -729,20 +706,20 @@ export class CursorFlowUI {
       // Add container to document once
       document.body.appendChild(container);
       
-      // Add the highlight (once)
+      // Add the highlight (once) with padding
       container.appendChild(highlight);
       highlight.style.position = 'absolute';
-      highlight.style.left = '0';
-      highlight.style.top = '0';
-      highlight.style.width = '100%';
-      highlight.style.height = '100%';
+      highlight.style.left = '-4px';
+      highlight.style.top = '-4px';
+      highlight.style.width = 'calc(100% + 8px)';
+      highlight.style.height = 'calc(100% + 8px)';
       
-      // Position cursor at the bottom right corner of the highlight
+      // Position cursor at bottom right edge of highlighted element
       container.appendChild(cursor);
       cursor.style.position = 'absolute';
-      cursor.style.right = '0';
-      cursor.style.bottom = '0';
-      cursor.style.transform = 'translate(0, 0)';
+      cursor.style.right = '-24px';
+      cursor.style.bottom = '-24px';
+      cursor.style.transform = 'none';
     }
     
     // Only update text content if popup exists
@@ -751,26 +728,13 @@ export class CursorFlowUI {
     
     if (existingPopup) {
       popup = existingPopup as HTMLElement;
-      // Just update text content
-      const textContainer = popup.querySelector('div');
-      if (textContainer) textContainer.textContent = text;
+      // Just update text directly
+      popup.textContent = text;
     } else {
       // Create new popup
       popup = this.createTextPopup(text, theme);
       container.appendChild(popup);
       popup.style.position = 'absolute';
-      
-      // Position the popup with its top-left corner below and to right of cursor
-      popup.style.left = 'calc(100% - 20px)';
-      popup.style.top = '100%';
-      popup.style.transform = 'translateX(-80%)';
-      
-      // Move the arrow to match the cursor position
-      const arrow = popup.querySelector('div') as HTMLElement;
-      if (arrow) {
-        arrow.style.left = '80%';
-        arrow.style.bottom = '100%';
-      }
     }
     
     // Use requestAnimationFrame for smoother position updates
@@ -784,33 +748,56 @@ export class CursorFlowUI {
         container.style.width = `${rect.width}px`;
         container.style.height = `${rect.height}px`;
         
-        // Always ensure cursor is at bottom right
+        // Position cursor at bottom right
         if (cursor) {
-          cursor.style.right = '0';
-          cursor.style.bottom = '0';
+          cursor.style.right = '-24px';
+          cursor.style.bottom = '-24px';
         }
         
-        // Always ensure popup is positioned correctly relative to cursor
+        // Position textbox directly at cursor tip
         if (popup) {
-          const popupRect = popup.getBoundingClientRect();
-          const viewportWidth = window.innerWidth;
-          const viewportHeight = window.innerHeight;
+          // Get cursor position within container
+          const cursorRect = cursor.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
           
-          // Default position - below and to right of cursor
-          popup.style.left = 'calc(100% - 20px)';
-          popup.style.top = '100%';
-          popup.style.transform = 'translateX(-80%)';
+          // The cursor SVG tip is approximately at these offsets from its top-left
+          const cursorTipX = 24;  // Approximate X offset to cursor tip
+          const cursorTipY = 16;  // Approximate Y offset to cursor tip
           
-          // Check right edge
-          if (popupRect.right > viewportWidth) {
-            popup.style.left = '0';
-            popup.style.transform = 'translateX(0)';
-          }
-          // Check bottom edge
-          if (popupRect.bottom > viewportHeight) {
-            popup.style.top = 'auto';
-            popup.style.bottom = '100%';
-          }
+          // Position popup absolutely from container
+          popup.style.position = 'absolute';
+          popup.style.right = 'auto';
+          popup.style.bottom = 'auto';
+          popup.style.left = `calc(100% + ${cursorTipX}px)`;
+          popup.style.top = `calc(100% - ${cursorTipY}px)`;
+          
+          // SIMPLIFIED: Just make the box wide and handle text properly
+          popup.style.width = '150px';           // Fixed wider width
+          popup.style.maxWidth = '500px';        // Match the width
+          popup.style.whiteSpace = 'normal';     // Allow wrapping
+          popup.style.wordWrap = 'break-word';   // Handle long words
+          
+          // No conditional width adjustment based on text length
+          // This gives consistent wider box behavior
+          
+          // Viewport boundary checks (after positioning and sizing)
+          setTimeout(() => {
+            const popupRect = popup.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            
+            // If off right edge
+            if (popupRect.right > viewportWidth) {
+              popup.style.left = 'auto';
+              popup.style.right = `calc(100% + 10px)`;
+            }
+            
+            // If off bottom
+            if (popupRect.bottom > viewportHeight) {
+              popup.style.top = 'auto'; 
+              popup.style.bottom = `calc(100% + 10px)`;
+            }
+          }, 0);
         }
       });
     };
