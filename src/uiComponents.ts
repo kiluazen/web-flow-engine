@@ -705,132 +705,159 @@ export class CursorFlowUI {
   }
 
   static showGuidanceElements(element: HTMLElement, cursor: HTMLElement, highlight: HTMLElement, text: string, theme: ThemeOptions): void {
-    // First, clean up any existing elements
-    this.cleanupAllUI();
+    // Get or create the container (reuse if possible)
+    let container = document.querySelector('.hyphen-guidance-container') as EnhancedHTMLElement;
+    let shouldUpdatePositionOnly = false;
     
-    // Create a container that will hold all guidance elements
-    const container = document.createElement('div') as EnhancedHTMLElement;
-    container.className = 'hyphen-guidance-container';
-    container.style.position = 'absolute';
-    container.style.top = '0';
-    container.style.left = '0';
-    container.style.pointerEvents = 'none';
-    container.style.zIndex = '9998';
-    
-    // Add the highlight
-    container.appendChild(highlight);
-    highlight.style.position = 'absolute';
-    highlight.style.left = '0';
-    highlight.style.top = '0';
-    highlight.style.width = '100%';
-    highlight.style.height = '100%';
-    
-    // Add the cursor
-    container.appendChild(cursor);
-    cursor.style.position = 'absolute';
-    // Position cursor at bottom right of highlight
-    cursor.style.left = '90%'; // Slightly inside from edge
-    cursor.style.top = '90%'; // Slightly inside from edge
-    cursor.style.transform = 'translate(-25%, -25%)';
-    
-    // Create and add the text popup
-    const popup = this.createTextPopup(text, theme);
-    container.appendChild(popup);
-    popup.style.position = 'absolute';
-    
-    // Position popup below the element by default
-    popup.style.left = '50%';
-    popup.style.top = '105%';
-    popup.style.transform = 'translateX(-50%)';
-    
-    // Move the arrow to the right location
-    const arrow = popup.querySelector('div') as HTMLElement;
-    if (arrow) {
-      arrow.style.left = '50%';
-      arrow.style.bottom = '100%';
+    // If container exists, we'll reuse it instead of recreating
+    if (container) {
+      // Clear previous observers gracefully
+      if (container['observer']) {
+        container['observer'].disconnect();
+      }
+      shouldUpdatePositionOnly = true;
+    } else {
+      // Create new container
+      container = document.createElement('div') as EnhancedHTMLElement;
+      container.className = 'hyphen-guidance-container';
+      container.style.position = 'absolute';
+      container.style.top = '0';
+      container.style.left = '0';
+      container.style.pointerEvents = 'none';
+      container.style.zIndex = '9998';
+      
+      // Add container to document once
+      document.body.appendChild(container);
+      
+      // Add the highlight (once)
+      container.appendChild(highlight);
+      highlight.style.position = 'absolute';
+      highlight.style.left = '0';
+      highlight.style.top = '0';
+      highlight.style.width = '100%';
+      highlight.style.height = '100%';
+      
+      // Position cursor at the bottom right corner of the highlight
+      container.appendChild(cursor);
+      cursor.style.position = 'absolute';
+      cursor.style.right = '0';
+      cursor.style.bottom = '0';
+      cursor.style.transform = 'translate(0, 0)';
     }
     
-    // Add the container to the document
-    document.body.appendChild(container);
+    // Only update text content if popup exists
+    const existingPopup = container.querySelector('.hyphen-text-popup');
+    let popup: HTMLElement;
     
-    // Create a MutationObserver to watch for changes to the element
+    if (existingPopup) {
+      popup = existingPopup as HTMLElement;
+      // Just update text content
+      const textContainer = popup.querySelector('div');
+      if (textContainer) textContainer.textContent = text;
+    } else {
+      // Create new popup
+      popup = this.createTextPopup(text, theme);
+      container.appendChild(popup);
+      popup.style.position = 'absolute';
+      
+      // Position the popup with its top-left corner below and to right of cursor
+      popup.style.left = 'calc(100% - 20px)';
+      popup.style.top = '100%';
+      popup.style.transform = 'translateX(-80%)';
+      
+      // Move the arrow to match the cursor position
+      const arrow = popup.querySelector('div') as HTMLElement;
+      if (arrow) {
+        arrow.style.left = '80%';
+        arrow.style.bottom = '100%';
+      }
+    }
+    
+    // Use requestAnimationFrame for smoother position updates
+    const updatePosition = () => {
+      requestAnimationFrame(() => {
+        const rect = element.getBoundingClientRect();
+        const scrollX = window.scrollX || window.pageXOffset;
+        const scrollY = window.scrollY || window.pageYOffset;
+        
+        container.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
+        container.style.width = `${rect.width}px`;
+        container.style.height = `${rect.height}px`;
+        
+        // Always ensure cursor is at bottom right
+        if (cursor) {
+          cursor.style.right = '0';
+          cursor.style.bottom = '0';
+        }
+        
+        // Always ensure popup is positioned correctly relative to cursor
+        if (popup) {
+          const popupRect = popup.getBoundingClientRect();
+          const viewportWidth = window.innerWidth;
+          const viewportHeight = window.innerHeight;
+          
+          // Default position - below and to right of cursor
+          popup.style.left = 'calc(100% - 20px)';
+          popup.style.top = '100%';
+          popup.style.transform = 'translateX(-80%)';
+          
+          // Check right edge
+          if (popupRect.right > viewportWidth) {
+            popup.style.left = '0';
+            popup.style.transform = 'translateX(0)';
+          }
+          // Check bottom edge
+          if (popupRect.bottom > viewportHeight) {
+            popup.style.top = 'auto';
+            popup.style.bottom = '100%';
+          }
+        }
+      });
+    };
+    
+    // Set up scroll/resize event listeners efficiently (only once)
+    if (!shouldUpdatePositionOnly) {
+      // Remove old handlers if they exist
+      if (container['scrollHandler']) {
+        window.removeEventListener('scroll', container['scrollHandler']);
+        window.removeEventListener('resize', container['resizeHandler']);
+      }
+      
+      // Throttled event handler
+      const throttled = (() => {
+        let lastCall = 0;
+        return function() {
+          const now = Date.now();
+          if (now - lastCall >= 16) { // ~60fps
+            lastCall = now;
+            updatePosition();
+          }
+        };
+      })();
+      
+      window.addEventListener('scroll', throttled, { passive: true });
+      window.addEventListener('resize', throttled, { passive: true });
+      container['scrollHandler'] = throttled;
+      container['resizeHandler'] = throttled;
+    }
+    
+    // Create a lighter MutationObserver
     const observer = new MutationObserver(() => {
       updatePosition();
     });
     
-    // Watch for changes to the element
+    // Watch only position-affecting attributes
     observer.observe(element, {
       attributes: true,
-      childList: true,
-      subtree: true
+      attributeFilter: ['style', 'class'],
+      childList: false
     });
     
-    // Store the observer on the container
+    // Store the observer
     container['observer'] = observer;
-    
-    // Function to update the container position
-    const updatePosition = () => {
-      const rect = element.getBoundingClientRect();
-      const scrollX = window.scrollX || window.pageXOffset;
-      const scrollY = window.scrollY || window.pageYOffset;
-      
-      container.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
-      container.style.width = `${rect.width}px`;
-      container.style.height = `${rect.height}px`;
-      
-      // Check if popup is going outside viewport
-      const popupRect = popup.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      
-      // If popup extends beyond right edge, adjust its position
-      if (popupRect.right > viewportWidth) {
-        popup.style.left = '0';
-        popup.style.transform = 'translateX(0)';
-        
-        // Move arrow
-        if (arrow) {
-          arrow.style.left = '85%';
-        }
-      }
-      
-      // If popup extends beyond left edge, adjust its position
-      if (popupRect.left < 0) {
-        popup.style.left = '100%';
-        popup.style.transform = 'translateX(-100%)';
-        
-        // Move arrow
-        if (arrow) {
-          arrow.style.left = '15%';
-        }
-      }
-      
-      // If popup extends beyond bottom edge, position it above
-      if (popupRect.bottom > viewportHeight) {
-        popup.style.top = 'auto';
-        popup.style.bottom = '105%';
-        
-        // Flip arrow to point down
-        if (arrow) {
-          arrow.style.bottom = 'auto';
-          arrow.style.top = '100%';
-          arrow.style.borderBottom = 'none';
-          arrow.style.borderTop = '8px solid #ffffff';
-        }
-      }
-    };
     
     // Initial position update
     updatePosition();
-    
-    // Update position on scroll and resize
-    const handler = () => updatePosition();
-    window.addEventListener('scroll', handler, { passive: true });
-    window.addEventListener('resize', handler, { passive: true });
-    
-    // Store the handlers on the container
-    container['scrollHandler'] = handler;
-    container['resizeHandler'] = handler;
   }
 
   static showRedirectNotification(options: RedirectNotificationOptions): HTMLElement {
@@ -851,6 +878,15 @@ export class CursorFlowUI {
       ...options,
       buttons
     });
+  }
+
+  // Add a more efficient cleanup method that keeps elements but hides them
+  static hideGuidanceElements(): void {
+    const container = document.querySelector('.hyphen-guidance-container') as HTMLElement;
+    if (container) {
+      // Hide instead of removing
+      container.style.display = 'none';
+    }
   }
 }
 
