@@ -5,21 +5,42 @@ export class ElementUtils {
       try {
         // Get element data if available
         const element = interaction.element || {};
+        const findingDetails = { tried: [] as string[] };
         
-        // STRATEGY 1: CSS Selector (fastest)
+        // STRATEGY 1: CSS Selector (fastest & highest confidence)
         if (element.cssSelector) {
+          findingDetails.tried.push("CSS Selector");
           try {
             const foundElement = document.querySelector(element.cssSelector) as HTMLElement;
             if (foundElement) {
+              console.log('✓ Element found using CSS selector strategy');
               return foundElement; // Fast exit!
             }
+            
+            // Mantine UI specific enhancement for tab elements
+            if (element.cssSelector.includes('mantine-') && element.cssSelector.includes('-tab-')) {
+              findingDetails.tried.push("Mantine Tab ID");
+              // Extract the path part after "-tab-"
+              const pathPart = element.cssSelector.split('-tab-')[1];
+              if (pathPart) {
+                const cleanPath = pathPart.replace(/[#"'\[\]]/g, '');
+                const flexibleSelector = `[id$="-tab-${cleanPath}"]`;
+                const mantineElement = document.querySelector(flexibleSelector) as HTMLElement;
+                
+                if (mantineElement) {
+                  console.log('✓ Element found using Mantine-specific ID strategy');
+                  return mantineElement;
+                }
+              }
+            }
           } catch (e) {
-            // Invalid selector, continue
+            // Invalid selector, continue to next strategy
           }
         }
         
-        // STRATEGY 2: Attribute selector for links (very fast for common case)
+        // STRATEGY 2: Attribute selector for links (high confidence)
         if (element.tagName === 'A' && element.attributes) {
+          findingDetails.tried.push("Link Attributes");
           try {
             const attrs = typeof element.attributes === 'string' 
               ? JSON.parse(element.attributes) 
@@ -28,6 +49,7 @@ export class ElementUtils {
             if (attrs.href) {
               const foundElement = document.querySelector(`a[href="${attrs.href}"]`) as HTMLElement;
               if (foundElement) {
+                console.log('✓ Element found using link attributes strategy');
                 return foundElement; // Fast exit!
               }
             }
@@ -36,9 +58,29 @@ export class ElementUtils {
           }
         }
         
-        // STRATEGY 3: Interactive element + exact text (good balance of speed & reliability)
+        // STRATEGY 3: Button/Tab with role and text (high confidence)
+        if (element.tagName === 'BUTTON' && element.textContent && 
+            (element.attributes?.includes('role="tab"') || element.semanticClasses?.includes('Tab'))) {
+          findingDetails.tried.push("Tab by Role+Text");
+          try {
+            const tabElements = document.querySelectorAll('button[role="tab"]');
+            
+            // Find tab with exact text content
+            for (const tab of tabElements) {
+              if (tab.textContent?.trim() === element.textContent.trim()) {
+                console.log('✓ Element found using tab role+text strategy');
+                return tab as HTMLElement;
+              }
+            }
+          } catch (e) {
+            // Error finding tab by role, continue
+          }
+        }
+        
+        // STRATEGY 4: Interactive element + exact text (medium-high confidence)
         const textContent = (element.textContent || interaction.text || '').trim();
         if (textContent) {
+          findingDetails.tried.push("Interactive Element+Text");
           // Target the most likely elements first
           const selector = element.tagName 
             ? element.tagName.toLowerCase() 
@@ -60,27 +102,18 @@ export class ElementUtils {
           ) as HTMLElement;
           
           if (foundElement) {
+            console.log('✓ Element found using interactive element+text strategy');
             return foundElement; // Fast exit!
-          }
-          
-          // Only try partial match if exact match is not required
-          if (!requireExactMatch) {
-            const partialMatch = candidates.find(el => 
-              el.textContent?.trim().toLowerCase().includes(textContent.toLowerCase())
-            ) as HTMLElement;
-            
-            if (partialMatch) {
-              return partialMatch; // Fast exit!
-            }
           }
         }
         
-        // FALLBACK STRATEGY: Only if everything else failed
-        // This prevents excessive DOM searching for most cases
+        // STRATEGY 5: Fallback to explicit selector (medium-high confidence)
         if (interaction.selector) {
+          findingDetails.tried.push("Explicit Selector");
           try {
             const foundElement = document.querySelector(interaction.selector) as HTMLElement;
             if (foundElement) {
+              console.log('✓ Element found using explicit selector strategy');
               return foundElement;
             }
           } catch (e) {
@@ -89,6 +122,7 @@ export class ElementUtils {
         }
         
         // No element found after all strategies
+        console.log(`❌ Element not found. Tried strategies: ${findingDetails.tried.join(', ')}`);
         return null;
       } catch (error) {
         console.error("Error finding element:", error);
