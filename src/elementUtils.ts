@@ -13,8 +13,14 @@ export class ElementUtils {
           try {
             const foundElement = document.querySelector(element.cssSelector) as HTMLElement;
             if (foundElement) {
-              console.log('✓ Element found using CSS selector strategy');
-              return foundElement; // Fast exit!
+              // NEW: Only accept if text content matches or text isn't specified
+              if (!element.textContent || foundElement.textContent?.trim() === element.textContent.trim()) {
+                console.log('✓ Element found using CSS selector strategy');
+                return foundElement; // Fast exit!
+              } else {
+                console.log(`⚠️ CSS selector matched element with wrong text. Expected "${element.textContent}", found "${foundElement.textContent?.trim()}"`);
+                // Continue to other strategies instead of accepting wrong element
+              }
             }
             
             // Mantine UI specific enhancement for tab elements
