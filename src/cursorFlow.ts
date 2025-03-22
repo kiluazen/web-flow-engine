@@ -621,6 +621,16 @@ export default class CursorFlow {
         interaction.text = interaction.element.textContent;
       }
       
+      // Before we search for elements, check if navigation is expected
+      const expectedPath = interaction.pageInfo?.path;
+      const currentPath = window.location.pathname;
+      const isNavigationExpected = expectedPath && expectedPath !== currentPath;
+      
+      // Only do this quick check if we have path info - very low latency impact
+      if (isNavigationExpected) {
+        console.log(`Navigation expected from ${currentPath} to ${expectedPath}`);
+      }
+      
       // Add debugging for element finding
       this.debugLog('Looking for element with properties:', JSON.stringify({
         text: interaction.text,
@@ -634,8 +644,14 @@ export default class CursorFlow {
       
       if (!this.currentTargetElement) {
         console.warn('Target element not found for step:', currentStep);
+        
+        // NEW CONDITION: Skip error if navigation is expected
+        if (isNavigationExpected) {
+          console.log('Element not found, but navigation is expected - skipping error');
+          return true; // Allow navigation to proceed
+        }
+        
         console.log('DOM content at time of search:', document.body.innerHTML.substring(0, 500) + '...');
-        // Handle error, maybe try again or show notification
         this.handleInteractionError();
         return false;
       }
