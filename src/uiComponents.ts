@@ -599,20 +599,51 @@ export class CursorFlowUI {
     // Add the wrapper to the document
     document.body.appendChild(wrapper);
     
-    // Create a MutationObserver to watch for changes to the element
-    const observer = new MutationObserver(() => {
+    // NEW: Add a small delay to allow animations to complete
+    setTimeout(() => {
       updatePosition();
-    });
-    
-    // Watch for changes to the element's attributes and children
-    observer.observe(element, {
-      attributes: true,
-      childList: true,
-      subtree: true
-    });
-    
-    // Store the observer on the wrapper for later cleanup
-    wrapper['observer'] = observer;
+      
+      // Create a MutationObserver to watch for changes to the element
+      const observer = new MutationObserver(() => {
+        updatePosition();
+      });
+      
+      // Watch for changes to the element's attributes and children
+      observer.observe(element, {
+        attributes: true,
+        childList: true,
+        subtree: true
+      });
+      
+      // Store the observer on the wrapper for later cleanup
+      wrapper['observer'] = observer;
+      
+      // NEW: Also observe parent nodes for position changes
+      const parentElement = element.parentElement;
+      if (parentElement) {
+        const parentObserver = new MutationObserver(() => {
+          updatePosition();
+        });
+        
+        parentObserver.observe(parentElement, {
+          attributes: true,
+          attributeFilter: ['style', 'class'],
+          childList: false
+        });
+        
+        // Store for cleanup
+        wrapper['parentObserver'] = parentObserver;
+      }
+      
+      // Update position on scroll and resize
+      const handler = () => updatePosition();
+      window.addEventListener('scroll', handler, { passive: true });
+      window.addEventListener('resize', handler, { passive: true });
+      
+      // Store the handlers on the wrapper for later cleanup
+      wrapper['scrollHandler'] = handler;
+      wrapper['resizeHandler'] = handler;
+    }, 50); // Short delay to let transitions settle
     
     // Function to update the wrapper position
     const updatePosition = () => {
@@ -620,22 +651,13 @@ export class CursorFlowUI {
       const scrollX = window.scrollX || window.pageXOffset;
       const scrollY = window.scrollY || window.pageYOffset;
       
-      wrapper.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
-      wrapper.style.width = `${rect.width}px`;
-      wrapper.style.height = `${rect.height}px`;
+      // NEW: Only update if the element has a valid size
+      if (rect.width > 0 && rect.height > 0) {
+        wrapper.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
+        wrapper.style.width = `${rect.width}px`;
+        wrapper.style.height = `${rect.height}px`;
+      }
     };
-    
-    // Initial position update
-    updatePosition();
-    
-    // Update position on scroll and resize
-    const handler = () => updatePosition();
-    window.addEventListener('scroll', handler, { passive: true });
-    window.addEventListener('resize', handler, { passive: true });
-    
-    // Store the handlers on the wrapper for later cleanup
-    wrapper['scrollHandler'] = handler;
-    wrapper['resizeHandler'] = handler;
   }
 
   // Add a new method to properly clean up all UI components
@@ -661,6 +683,9 @@ export class CursorFlowUI {
       if (enhancedWrapper['observer']) {
         enhancedWrapper['observer'].disconnect();
       }
+      if (enhancedWrapper['parentObserver']) {
+        enhancedWrapper['parentObserver'].disconnect(); // NEW: Also disconnect parent observer
+      }
       if (enhancedWrapper['scrollHandler']) {
         window.removeEventListener('scroll', enhancedWrapper['scrollHandler']);
         window.removeEventListener('resize', enhancedWrapper['scrollHandler']);
@@ -675,6 +700,14 @@ export class CursorFlowUI {
     textPopups.forEach(popup => {
       if (popup.parentNode) {
         popup.parentNode.removeChild(popup);
+      }
+    });
+    
+    // Remove any notifications
+    const notifications = document.querySelectorAll('.hyphen-notification');
+    notifications.forEach(notification => {
+      if (notification.parentNode) {
+        notification.parentNode.removeChild(notification);
       }
     });
     
