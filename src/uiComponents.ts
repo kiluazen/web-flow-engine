@@ -577,26 +577,53 @@ export class CursorFlowUI {
     const { activeModal } = this.detectAndLogPortals();
     const isInModal = activeModal ? activeModal.contains(element) : false;
     
+    // NEW: Verify if element is in expanded navigation
+    const isInExpandedNav = element && element.closest ? element.closest('[data-expanded="true"]') !== null : false;
+    
+    // NEW: Log element ancestry for better debugging
+    let ancestryLog = [];
+    let parentNode = element.parentElement;
+    let depth = 0;
+    while (parentNode && depth < 5) {
+      ancestryLog.push({
+        depth,
+        tag: parentNode.tagName,
+        id: parentNode.id,
+        classes: parentNode.className,
+        hasSize: parentNode.getBoundingClientRect().width > 0 && parentNode.getBoundingClientRect().height > 0,
+        display: window.getComputedStyle(parentNode).display,
+        position: window.getComputedStyle(parentNode).position
+      });
+      parentNode = parentNode.parentElement;
+      depth++;
+    }
+    
     console.log('[HIGHLIGHT-POSITION] Positioning info:', {
       element: {
         tag: element.tagName,
         id: element.id,
         classes: element.className,
-        inModal: isInModal
+        inModal: isInModal,
+        inExpandedNav: isInExpandedNav,
+        offsetParent: element.offsetParent !== null
       },
       initialRect: element.getBoundingClientRect(),
       computedStyle: {
         display: window.getComputedStyle(element).display,
         visibility: window.getComputedStyle(element).visibility,
         position: window.getComputedStyle(element).position,
-        opacity: window.getComputedStyle(element).opacity
-      }
+        opacity: window.getComputedStyle(element).opacity,
+        zIndex: window.getComputedStyle(element).zIndex,
+        transform: window.getComputedStyle(element).transform
+      },
+      ancestry: ancestryLog
     });
     
     // First, remove any existing highlight wrapper
     const existingWrapper = document.querySelector('.hyphen-highlight-wrapper');
     if (existingWrapper && existingWrapper.parentNode) {
       existingWrapper.parentNode.removeChild(existingWrapper);
+      console.log('[HIGHLIGHT-POSITION] Removed existing highlight wrapper');
     }
     
     // Create a wrapper element that will be positioned relative to the target element
@@ -623,14 +650,18 @@ export class CursorFlowUI {
     
     // Add the wrapper to the document
     document.body.appendChild(wrapper);
+    console.log('[HIGHLIGHT-POSITION] Created highlight wrapper');
     
     // Variables for position stabilization
     let lastRect = { top: 0, left: 0, width: 0, height: 0 };
     let stabilityCounter = 0;
     let attemptCounter = 0;
-    const MAX_ATTEMPTS = isInModal ? 50 : 30; // More attempts for modal elements
-    const CHECK_INTERVAL = isInModal ? 100 : 50; // ms (longer for modals)
-    const INITIAL_DELAY = isInModal ? 300 : 0; // Add delay for modals
+    // NEW: Increase attempts for navigation elements
+    const MAX_ATTEMPTS = isInExpandedNav ? 60 : (isInModal ? 50 : 30);
+    const CHECK_INTERVAL = isInExpandedNav ? 80 : (isInModal ? 100 : 50);
+    const INITIAL_DELAY = isInExpandedNav ? 400 : (isInModal ? 300 : 0);
+    
+    console.log(`[HIGHLIGHT-POSITION] Configuration: delay=${INITIAL_DELAY}ms, interval=${CHECK_INTERVAL}ms, maxAttempts=${MAX_ATTEMPTS}`);
     
     // Function to update the wrapper position
     const updatePosition = () => {
@@ -646,16 +677,25 @@ export class CursorFlowUI {
           display: styles.display,
           visibility: styles.visibility,
           opacity: styles.opacity,
-          stabilityCounter
+          stabilityCounter,
+          inViewport: rect.width > 0 && rect.height > 0 && 
+                     rect.top >= 0 && rect.left >= 0 &&
+                     rect.bottom <= window.innerHeight && rect.right <= window.innerWidth,
+          elementConnected: element.isConnected
         });
       }
       
-      // Only update if the element has a valid size
-      if (rect.width > 0 && rect.height > 0) {
+      // NEW: Enhanced check for valid element size and visibility
+      const hasValidSize = rect.width > 0 && rect.height > 0;
+      const isInDocument = document.body.contains(element);
+      
+      // Only update if element has a valid position we can use
+      if (hasValidSize && isInDocument) {
         const scrollX = window.scrollX || window.pageXOffset;
         const scrollY = window.scrollY || window.pageYOffset;
         
-        wrapper.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
+        const transformValue = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
+        wrapper.style.transform = transformValue;
         wrapper.style.width = `${rect.width}px`;
         wrapper.style.height = `${rect.height}px`;
         
@@ -679,7 +719,7 @@ export class CursorFlowUI {
           // If position stable for several checks, show the highlight
           if (stabilityCounter >= 3) {
             wrapper.style.opacity = '1';
-            console.log('[HIGHLIGHT-POSITION] Position stabilized, showing highlight');
+            console.log('[HIGHLIGHT-POSITION] Position stabilized, showing highlight with transform: ' + transformValue);
             
             // If very stable, stop active checking
             if (stabilityCounter >= 5 && wrapper['positionInterval']) {
@@ -689,8 +729,72 @@ export class CursorFlowUI {
             }
           }
         }
+      } else if (isInExpandedNav && attemptCounter < MAX_ATTEMPTS/2) {
+        // For nav elements that might be expanding, keep trying
+        console.log('[HIGHLIGHT-POSITION] Navigation element not yet ready, continuing to wait...');
+        if (attemptCounter % 10 === 0) {
+          // Periodically log additional details about the navigation element
+          console.log('[HIGHLIGHT-POSITION] Nav element details:', {
+            hasSize: hasValidSize,
+            isConnected: element.isConnected,
+            rect: element.getBoundingClientRect(),
+            styles: {
+              display: window.getComputedStyle(element).display,
+              visibility: window.getComputedStyle(element).visibility,
+              opacity: window.getComputedStyle(element).opacity
+            }
+          });
+        }
       } else {
-        console.log(`[HIGHLIGHT-POSITION] Element has invalid size: ${rect.width}x${rect.height}`);
+        console.log(`[HIGHLIGHT-POSITION] Element invalid: hasSize=${hasValidSize}, inDoc=${isInDocument}, attempt=${attemptCounter}`);
+        
+        // NEW: Try to find nearest visible parent to position on instead
+        if (isInDocument && !hasValidSize && element.parentElement) {
+          let parent = element.parentElement;
+          let foundVisibleParent = false;
+          let parentSearchDepth = 0;
+          
+          // Walk up the tree looking for a visible parent
+          while (parent && parent !== document.body && !foundVisibleParent && parentSearchDepth < 10) {
+            parentSearchDepth++;
+            const parentRect = parent.getBoundingClientRect();
+            if (parentRect.width > 0 && parentRect.height > 0) {
+              console.log('[HIGHLIGHT-POSITION] Found visible parent at depth ' + parentSearchDepth, {
+                tag: parent.tagName,
+                id: parent.id,
+                classes: parent.className,
+                rect: parentRect,
+                styles: {
+                  display: window.getComputedStyle(parent).display,
+                  position: window.getComputedStyle(parent).position
+                }
+              });
+              
+              const scrollX = window.scrollX || window.pageXOffset;
+              const scrollY = window.scrollY || window.pageYOffset;
+              
+              const transformValue = `translate(${parentRect.left + scrollX}px, ${parentRect.top + scrollY}px)`;
+              wrapper.style.transform = transformValue;
+              wrapper.style.width = `${parentRect.width}px`;
+              wrapper.style.height = `${parentRect.height}px`;
+              wrapper.style.opacity = '1';
+              
+              console.log('[HIGHLIGHT-POSITION] Positioned on parent with transform: ' + transformValue);
+              foundVisibleParent = true;
+              break;
+            }
+            const nextParent = parent.parentElement;
+            if (!nextParent) {
+              console.log('[HIGHLIGHT-POSITION] No more parents to check');
+              break;
+            }
+            parent = nextParent;
+          }
+          
+          if (!foundVisibleParent) {
+            console.log('[HIGHLIGHT-POSITION] No visible parent found after checking ' + parentSearchDepth + ' ancestors');
+          }
+        }
       }
       
       // Stop after max attempts to prevent infinite loops
@@ -702,13 +806,32 @@ export class CursorFlowUI {
           
           // Force highlight to show if we've reached max attempts
           wrapper.style.opacity = '1';
+          console.log('[HIGHLIGHT-POSITION] Forcing highlight to show after max attempts');
+          
+          // Log final state for diagnosis
+          console.log('[HIGHLIGHT-POSITION] Final element state:', {
+            element: {
+              tag: element.tagName,
+              id: element.id,
+              connected: element.isConnected,
+              rect: element.getBoundingClientRect()
+            },
+            highlight: {
+              opacity: wrapper.style.opacity,
+              transform: wrapper.style.transform,
+              width: wrapper.style.width,
+              height: wrapper.style.height
+            }
+          });
         }
       }
     };
     
     // Use setTimeout to add a delay before starting position monitoring
     setTimeout(() => {
-      console.log(`[HIGHLIGHT-POSITION] Starting position monitoring with ${isInModal ? 'modal' : 'standard'} settings`);
+      console.log(`[HIGHLIGHT-POSITION] Starting position monitoring with ${
+        isInExpandedNav ? 'navigation' : (isInModal ? 'modal' : 'standard')
+      } settings`);
       
       // Start actively monitoring position changes
       const positionInterval = setInterval(updatePosition, CHECK_INTERVAL);
