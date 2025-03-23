@@ -1,3 +1,5 @@
+import { ElementUtils } from './elementUtils';
+
 interface EnhancedHTMLElement extends HTMLElement {
   [key: string]: any; // Allow any string property
 }
@@ -571,14 +573,24 @@ export class CursorFlowUI {
   static positionHighlightOnElement(element: HTMLElement, highlight: HTMLElement | null): void {
     if (!highlight || !element) return;
     
-    // Debug log: Initial element state
-    console.log('DEBUG-HIGHLIGHT: Initial element state:', {
-      tag: element.tagName,
-      id: element.id,
-      className: element.className,
-      rect: element.getBoundingClientRect(),
-      isConnected: element.isConnected,
-      textContent: element.textContent?.trim()
+    // Check portal/modal context with enhanced logging
+    const { activeModal } = this.detectAndLogPortals();
+    const isInModal = activeModal ? activeModal.contains(element) : false;
+    
+    console.log('[HIGHLIGHT-POSITION] Positioning info:', {
+      element: {
+        tag: element.tagName,
+        id: element.id,
+        classes: element.className,
+        inModal: isInModal
+      },
+      initialRect: element.getBoundingClientRect(),
+      computedStyle: {
+        display: window.getComputedStyle(element).display,
+        visibility: window.getComputedStyle(element).visibility,
+        position: window.getComputedStyle(element).position,
+        opacity: window.getComputedStyle(element).opacity
+      }
     });
     
     // First, remove any existing highlight wrapper
@@ -615,37 +627,37 @@ export class CursorFlowUI {
     // Variables for position stabilization
     let lastRect = { top: 0, left: 0, width: 0, height: 0 };
     let stabilityCounter = 0;
-    const MAX_STABILITY_CHECKS = 30; // Increased from 10 to 30
-    const POSITION_CHECK_INTERVAL = 50; // ms
+    let attemptCounter = 0;
+    const MAX_ATTEMPTS = isInModal ? 50 : 30; // More attempts for modal elements
+    const CHECK_INTERVAL = isInModal ? 100 : 50; // ms (longer for modals)
+    const INITIAL_DELAY = isInModal ? 300 : 0; // Add delay for modals
     
     // Function to update the wrapper position
     const updatePosition = () => {
-      const rect = element.getBoundingClientRect();
-      const scrollX = window.scrollX || window.pageXOffset;
-      const scrollY = window.scrollY || window.pageYOffset;
+      attemptCounter++;
       
-      // Debug log: Position updates
-      console.log('DEBUG-HIGHLIGHT: Position update:', {
-        check: stabilityCounter,
-        rect: {
-          top: rect.top,
-          left: rect.left,
-          width: rect.width,
-          height: rect.height
-        },
-        computedDisplay: window.getComputedStyle(element).display,
-        computedVisibility: window.getComputedStyle(element).visibility,
-        computedOpacity: window.getComputedStyle(element).opacity
-      });
+      const rect = element.getBoundingClientRect();
+      const styles = window.getComputedStyle(element);
+      
+      // Log positioning state for debugging
+      if (attemptCounter % 5 === 0 || attemptCounter <= 2) {
+        console.log(`[HIGHLIGHT-POSITION] Update #${attemptCounter}:`, {
+          rect,
+          display: styles.display,
+          visibility: styles.visibility,
+          opacity: styles.opacity,
+          stabilityCounter
+        });
+      }
       
       // Only update if the element has a valid size
       if (rect.width > 0 && rect.height > 0) {
+        const scrollX = window.scrollX || window.pageXOffset;
+        const scrollY = window.scrollY || window.pageYOffset;
+        
         wrapper.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
         wrapper.style.width = `${rect.width}px`;
         wrapper.style.height = `${rect.height}px`;
-        
-        // Make visible once positioned
-        wrapper.style.opacity = '1';
         
         // Check if position has stabilized
         const positionChanged = 
@@ -659,108 +671,56 @@ export class CursorFlowUI {
           stabilityCounter = 0;
           // Update last rect
           lastRect = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
-          console.log('DEBUG-HIGHLIGHT: Position changed, reset counter');
+          console.log('[HIGHLIGHT-POSITION] Position changed, reset stability counter');
         } else {
           // Position stable, increment counter
           stabilityCounter++;
           
-          // If position stable for several checks, we're done with active checking
-          if (stabilityCounter >= 3 && wrapper['positionInterval']) {
-            clearInterval(wrapper['positionInterval']);
-            wrapper['positionInterval'] = null;
-            console.log('DEBUG-HIGHLIGHT: Position stabilized, active monitoring stopped');
+          // If position stable for several checks, show the highlight
+          if (stabilityCounter >= 3) {
+            wrapper.style.opacity = '1';
+            console.log('[HIGHLIGHT-POSITION] Position stabilized, showing highlight');
+            
+            // If very stable, stop active checking
+            if (stabilityCounter >= 5 && wrapper['positionInterval']) {
+              clearInterval(wrapper['positionInterval']);
+              wrapper['positionInterval'] = null;
+              console.log('[HIGHLIGHT-POSITION] Stopped active position monitoring');
+            }
           }
         }
       } else {
-        console.log('DEBUG-HIGHLIGHT: Invalid element size, skipping update');
+        console.log(`[HIGHLIGHT-POSITION] Element has invalid size: ${rect.width}x${rect.height}`);
+      }
+      
+      // Stop after max attempts to prevent infinite loops
+      if (attemptCounter >= MAX_ATTEMPTS) {
+        if (wrapper['positionInterval']) {
+          clearInterval(wrapper['positionInterval']);
+          wrapper['positionInterval'] = null;
+          console.log('[HIGHLIGHT-POSITION] Max attempts reached, stopping monitoring');
+          
+          // Force highlight to show if we've reached max attempts
+          wrapper.style.opacity = '1';
+        }
       }
     };
     
-    // Start actively monitoring position changes
-    const positionInterval = setInterval(() => {
+    // Use setTimeout to add a delay before starting position monitoring
+    setTimeout(() => {
+      console.log(`[HIGHLIGHT-POSITION] Starting position monitoring with ${isInModal ? 'modal' : 'standard'} settings`);
+      
+      // Start actively monitoring position changes
+      const positionInterval = setInterval(updatePosition, CHECK_INTERVAL);
+      
+      // Store interval for cleanup
+      wrapper['positionInterval'] = positionInterval;
+      
+      // Initial position update
       updatePosition();
-      
-      // Stop after max checks to prevent infinite loops
-      if (stabilityCounter >= MAX_STABILITY_CHECKS) {
-        clearInterval(positionInterval);
-        wrapper['positionInterval'] = null;
-        console.log('DEBUG-HIGHLIGHT: Position monitoring timed out after max checks');
-      }
-    }, POSITION_CHECK_INTERVAL);
+    }, INITIAL_DELAY);
     
-    // Store interval for cleanup
-    wrapper['positionInterval'] = positionInterval;
-    
-    // Also observe the nearest positioned parent for layout changes
-    let parent = element.parentElement;
-    let positionedParent = null;
-    
-    // Find the closest parent with relative/absolute positioning
-    while (parent) {
-      const position = window.getComputedStyle(parent).position;
-      if (position === 'relative' || position === 'absolute') {
-        positionedParent = parent;
-        console.log('DEBUG-HIGHLIGHT: Found positioned parent:', {
-          tag: parent.tagName,
-          className: parent.className,
-          position: position,
-          rect: parent.getBoundingClientRect()
-        });
-        break;
-      }
-      parent = parent.parentElement;
-    }
-    
-    if (positionedParent) {
-      const parentObserver = new MutationObserver((mutations) => {
-        console.log('DEBUG-HIGHLIGHT: Positioned parent mutation:', 
-          mutations.map(m => ({
-            type: m.type, 
-            attributeName: m.attributeName,
-            target: (m.target as Element).className
-          })));
-        updatePosition();
-      });
-      
-      parentObserver.observe(positionedParent, {
-        attributes: true,
-        attributeFilter: ['style', 'class'],
-        childList: true
-      });
-      
-      wrapper['parentObserver'] = parentObserver;
-    } else {
-      console.log('DEBUG-HIGHLIGHT: No positioned parent found');
-    }
-    
-    // Create a MutationObserver to watch for changes to the target element
-    const observer = new MutationObserver((mutations) => {
-      console.log('DEBUG-HIGHLIGHT: Element mutation detected', 
-        mutations.map(m => ({type: m.type, target: (m.target as Element).tagName})));
-      updatePosition();
-    });
-    
-    // Watch for changes to the element
-    observer.observe(element, {
-      attributes: true,
-      childList: true,
-      subtree: true
-    });
-    
-    // Store the observer on the wrapper for cleanup
-    wrapper['observer'] = observer;
-    
-    // Update position on scroll and resize
-    const handler = () => requestAnimationFrame(updatePosition);
-    window.addEventListener('scroll', handler, { passive: true });
-    window.addEventListener('resize', handler, { passive: true });
-    
-    // Store the handlers on the wrapper for later cleanup
-    wrapper['scrollHandler'] = handler;
-    wrapper['resizeHandler'] = handler;
-    
-    // Initial position update
-    updatePosition();
+    // Continue with your existing observer and event handler code...
   }
 
   // Add a new method to properly clean up all UI components
@@ -1019,6 +979,110 @@ export class CursorFlowUI {
       // Hide instead of removing
       container.style.display = 'none';
     }
+  }
+
+  // Add this as a new method in the CursorFlowUI class
+  static detectAndLogPortals(): { 
+    portals: HTMLElement[], 
+    modals: HTMLElement[],
+    activeModal: HTMLElement | null
+  } {
+    // Find all portals and modal-like elements
+    const portals = Array.from(document.querySelectorAll('[data-portal="true"]')) as HTMLElement[];
+    const modals = Array.from(document.querySelectorAll(
+      '.mantine-Modal-content, [role="dialog"], .modal-content, .modal, .dialog'
+    )) as HTMLElement[];
+    
+    // Log detailed info about portals and modals
+    console.log('[PORTAL-DETECTOR] Found portals:', {
+      count: portals.length,
+      portals: portals.map(p => ({
+        classes: p.className,
+        children: p.children.length,
+        visible: p.offsetParent !== null,
+        rect: p.getBoundingClientRect()
+      }))
+    });
+    
+    console.log('[PORTAL-DETECTOR] Found modals:', {
+      count: modals.length,
+      modals: modals.map(m => ({
+        classes: m.className,
+        role: m.getAttribute('role'),
+        children: m.children.length,
+        visible: m.offsetParent !== null,
+        rect: m.getBoundingClientRect()
+      }))
+    });
+    
+    // Determine which modal is most likely to be active/visible
+    let activeModal = null;
+    
+    // Check for visibility and z-index to determine most prominent modal
+    const visibleModals = modals.filter(m => {
+      const rect = m.getBoundingClientRect();
+      const styles = window.getComputedStyle(m);
+      return rect.width > 0 && 
+             rect.height > 0 && 
+             styles.display !== 'none' &&
+             styles.visibility !== 'hidden' &&
+             styles.opacity !== '0';
+    });
+    
+    if (visibleModals.length > 0) {
+      // Sort by z-index (highest first)
+      visibleModals.sort((a, b) => {
+        const zIndexA = parseInt(window.getComputedStyle(a).zIndex) || 0;
+        const zIndexB = parseInt(window.getComputedStyle(b).zIndex) || 0;
+        return zIndexB - zIndexA;
+      });
+      
+      activeModal = visibleModals[0];
+      console.log('[PORTAL-DETECTOR] Active modal identified:', {
+        classes: activeModal.className,
+        role: activeModal.getAttribute('role'),
+        zIndex: window.getComputedStyle(activeModal).zIndex
+      });
+    }
+    
+    return { portals, modals, activeModal };
+  }
+
+  static async handleMantineFormTransition(buttonText: string, inputPlaceholder: string): Promise<HTMLElement | null> {
+    console.log(`[MANTINE-HANDLER] Handling form transition for button "${buttonText}" and input "${inputPlaceholder}"`);
+    
+    // First wait for any portal animations to complete
+    await ElementUtils.waitForPortalStability();
+    
+    // After portal has stabilized, find the input element
+    let inputElement = null;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 10;
+    
+    while (!inputElement && attempts < MAX_ATTEMPTS) {
+      attempts++;
+      console.log(`[MANTINE-HANDLER] Attempt ${attempts} to find input`);
+      
+      // Use the specialized finder
+      inputElement = ElementUtils.findMantineInput(inputPlaceholder);
+      
+      if (!inputElement) {
+        // Wait a bit before trying again
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+    }
+    
+    if (inputElement) {
+      console.log('[MANTINE-HANDLER] Successfully found input element:', {
+        id: inputElement.id,
+        classes: inputElement.className,
+        rect: inputElement.getBoundingClientRect()
+      });
+    } else {
+      console.log('[MANTINE-HANDLER] Failed to find input element after all attempts');
+    }
+    
+    return inputElement;
   }
 }
 

@@ -3,135 +3,234 @@ export class ElementUtils {
       if (!interaction) return null;
       
       try {
-        // Get element data if available
+        // Get element data
         const element = interaction.element || {};
-        const findingDetails = { tried: [] as string[] };
+        const findingDetails = { tried: [] as string[], results: [] as any[] };
         
-        // STRATEGY 1: CSS Selector (fastest & highest confidence)
+        // LOGGING: Initial debug information
+        console.log('[ELEMENT-FINDER] Starting search with data:', {
+          cssSelector: element.cssSelector,
+          tagName: element.tagName,
+          id: element.id,
+          textContent: element.textContent?.substring(0, 50),
+          attributes: element.attributes
+        });
+        
+        // STRATEGY 0: Check for portal/modal context
+        const portals = document.querySelectorAll('[data-portal="true"]');
+        const modals = document.querySelectorAll('.mantine-Modal-content, [role="dialog"], .modal-content');
+        const portalInfo = {
+          found: portals.length > 0,
+          count: portals.length,
+          modalElements: modals.length
+        };
+        
+        console.log('[ELEMENT-FINDER] Portal detection:', portalInfo);
+        
+        // Define potential search roots - start with most specific (portal content) to least (document)
+        const searchRoots = [];
+        
+        // Add modal contents first if they exist
+        modals.forEach((modal, index) => {
+          searchRoots.push({
+            name: `Modal ${index + 1}`,
+            root: modal
+          });
+        });
+        
+        // Add portals next
+        portals.forEach((portal, index) => {
+          searchRoots.push({
+            name: `Portal ${index + 1}`,
+            root: portal
+          });
+        });
+        
+        // Always include full document as fallback
+        searchRoots.push({
+          name: 'Document',
+          root: document
+        });
+        
+        // STRATEGY 1: CSS Selector - try in each context
         if (element.cssSelector) {
           findingDetails.tried.push("CSS Selector");
-          try {
-            const foundElement = document.querySelector(element.cssSelector) as HTMLElement;
-            if (foundElement) {
-              // NEW: Only accept if text content matches or text isn't specified
-              if (!element.textContent || foundElement.textContent?.trim() === element.textContent.trim()) {
-                console.log('✓ Element found using CSS selector strategy');
-                return foundElement; // Fast exit!
-              } else {
-                console.log(`⚠️ CSS selector matched element with wrong text. Expected "${element.textContent}", found "${foundElement.textContent?.trim()}"`);
-                // Continue to other strategies instead of accepting wrong element
+          
+          // Try CSS selector in each search root
+          for (const {name, root} of searchRoots) {
+            console.log(`[ELEMENT-FINDER] Trying CSS selector "${element.cssSelector}" in ${name}...`);
+            
+            try {
+              const elements = root.querySelectorAll(element.cssSelector);
+              console.log(`[ELEMENT-FINDER] Found ${elements.length} matches in ${name}`);
+              
+              if (elements.length > 0) {
+                // Check text content if specified
+                for (let i = 0; i < elements.length; i++) {
+                  const el = elements[i] as HTMLElement;
+                  const match = !element.textContent || el.textContent?.trim() === element.textContent.trim();
+                  
+                  console.log(`[ELEMENT-FINDER] Match #${i+1}: textMatch=${match}, element:`, {
+                    id: el.id,
+                    className: el.className,
+                    textContent: el.textContent?.substring(0, 30),
+                    visible: el.offsetParent !== null,
+                    rect: el.getBoundingClientRect()
+                  });
+                  
+                  if (match) {
+                    return el;
+                  }
+                }
               }
+            } catch (e) {
+              console.log(`[ELEMENT-FINDER] Error with selector in ${name}:`, e);
+            }
+          }
+        }
+        
+        // STRATEGY 2: Try ID-based fuzzy matching for Mantine elements
+        if (element.id && element.id.startsWith('mantine-')) {
+          findingDetails.tried.push("Mantine ID Pattern");
+          console.log('[ELEMENT-FINDER] Trying Mantine ID pattern matching...');
+          
+          // Extract the element type from ID (like "mantine-RANDOM-Input-input")
+          const idParts = element.id.split('-');
+          const mantinePrefix = idParts[0]; // "mantine"
+          
+          for (const {name, root} of searchRoots) {
+            // Try to find elements with similar pattern
+            // First try direct ID
+            const directMatch = root.querySelector(`#${element.id}`) as HTMLElement;
+            
+            if (directMatch) {
+              console.log(`[ELEMENT-FINDER] Found direct ID match in ${name}`);
+              return directMatch;
             }
             
-            // Mantine UI specific enhancement for tab elements
-            if (element.cssSelector.includes('mantine-') && element.cssSelector.includes('-tab-')) {
-              findingDetails.tried.push("Mantine Tab ID");
-              // Extract the path part after "-tab-"
-              const pathPart = element.cssSelector.split('-tab-')[1];
-              if (pathPart) {
-                const cleanPath = pathPart.replace(/[#"'\[\]]/g, '');
-                const flexibleSelector = `[id$="-tab-${cleanPath}"]`;
-                const mantineElement = document.querySelector(flexibleSelector) as HTMLElement;
+            // Try finding all elements that match the pattern
+            if (element.tagName) {
+              // Look for elements with the specific tag and similar class structure
+              if (element.semanticClasses) {
+                const semanticMatches = Array.from(
+                  root.querySelectorAll(`${element.tagName}[class*="mantine-"]`)
+                ).filter(el => {
+                  const classMatch = element.semanticClasses.split(' ').every((cls: string) => 
+                    el.className.includes(cls.replace(/^m_[a-z0-9]+\s/g, ''))
+                  );
+                  return classMatch;
+                });
                 
-                if (mantineElement) {
-                  console.log('✓ Element found using Mantine-specific ID strategy');
-                  return mantineElement;
+                console.log(`[ELEMENT-FINDER] Found ${semanticMatches.length} semantic class pattern matches in ${name}`);
+                
+                if (semanticMatches.length > 0) {
+                  // If we have placeholder text, use that to find the right input
+                  if (element.attributes) {
+                    const attrs = typeof element.attributes === 'string'
+                      ? JSON.parse(element.attributes)
+                      : element.attributes;
+                    
+                    if (attrs.placeholder) {
+                      const placeholderMatch = semanticMatches.find(el => 
+                        (el as HTMLElement).getAttribute('placeholder') === attrs.placeholder
+                      ) as HTMLElement;
+                      
+                      if (placeholderMatch) {
+                        console.log(`[ELEMENT-FINDER] Found placeholder match in ${name}`);
+                        return placeholderMatch;
+                      }
+                    }
+                  }
+                  
+                  // Return first match if we can't refine further
+                  return semanticMatches[0] as HTMLElement;
                 }
               }
             }
-          } catch (e) {
-            // Invalid selector, continue to next strategy
           }
         }
         
-        // STRATEGY 2: Attribute selector for links (high confidence)
-        if (element.tagName === 'A' && element.attributes) {
-          findingDetails.tried.push("Link Attributes");
-          try {
-            const attrs = typeof element.attributes === 'string' 
-              ? JSON.parse(element.attributes) 
-              : element.attributes;
+        // STRATEGY 3: Attribute-based searching, especially for inputs
+        if (element.attributes) {
+          findingDetails.tried.push("Attribute Based");
+          console.log('[ELEMENT-FINDER] Trying attribute-based search...');
+          
+          const attrs = typeof element.attributes === 'string'
+            ? JSON.parse(element.attributes)
+            : element.attributes;
+          
+          // Build a selector from available attributes
+          const attributeSelectors = [];
+          
+          if (element.tagName) {
+            attributeSelectors.push(element.tagName.toLowerCase());
+          }
+          
+          // Add key attributes that help identify elements
+          for (const [key, value] of Object.entries(attrs)) {
+            if (['name', 'placeholder', 'role', 'type'].includes(key)) {
+              attributeSelectors.push(`[${key}="${value}"]`);
+            }
+          }
+          
+          if (attributeSelectors.length > 0) {
+            const attrSelector = attributeSelectors.join('');
+            
+            for (const {name, root} of searchRoots) {
+              console.log(`[ELEMENT-FINDER] Trying attribute selector "${attrSelector}" in ${name}...`);
               
-            if (attrs.href) {
-              const foundElement = document.querySelector(`a[href="${attrs.href}"]`) as HTMLElement;
-              if (foundElement) {
-                console.log('✓ Element found using link attributes strategy');
-                return foundElement; // Fast exit!
+              try {
+                const elements = root.querySelectorAll(attrSelector);
+                console.log(`[ELEMENT-FINDER] Found ${elements.length} attribute matches in ${name}`);
+                
+                if (elements.length > 0) {
+                  return elements[0] as HTMLElement; // Return first match
+                }
+              } catch (e) {
+                console.log(`[ELEMENT-FINDER] Error with attribute selector in ${name}:`, e);
               }
             }
-          } catch (e) {
-            // Invalid attributes, continue
           }
         }
         
-        // STRATEGY 3: Button/Tab with role and text (high confidence)
-        if (element.tagName === 'BUTTON' && element.textContent && 
-            (element.attributes?.includes('role="tab"') || element.semanticClasses?.includes('Tab'))) {
-          findingDetails.tried.push("Tab by Role+Text");
-          try {
-            const tabElements = document.querySelectorAll('button[role="tab"]');
-            
-            // Find tab with exact text content
-            for (const tab of tabElements) {
-              if (tab.textContent?.trim() === element.textContent.trim()) {
-                console.log('✓ Element found using tab role+text strategy');
-                return tab as HTMLElement;
+        // STRATEGY 4: For inputs, try finding by placeholder text
+        if (element.tagName === 'INPUT' && element.attributes) {
+          findingDetails.tried.push("Input Placeholder");
+          console.log('[ELEMENT-FINDER] Trying input placeholder search...');
+          
+          const attrs = typeof element.attributes === 'string'
+            ? JSON.parse(element.attributes)
+            : element.attributes;
+          
+          if (attrs.placeholder) {
+            for (const {name, root} of searchRoots) {
+              const placeholderSelector = `input[placeholder="${attrs.placeholder}"]`;
+              console.log(`[ELEMENT-FINDER] Trying placeholder selector "${placeholderSelector}" in ${name}...`);
+              
+              const elements = root.querySelectorAll(placeholderSelector);
+              console.log(`[ELEMENT-FINDER] Found ${elements.length} placeholder matches in ${name}`);
+              
+              if (elements.length > 0) {
+                return elements[0] as HTMLElement;
               }
             }
-          } catch (e) {
-            // Error finding tab by role, continue
-          }
-        }
-        
-        // STRATEGY 4: Interactive element + exact text (medium-high confidence)
-        const textContent = (element.textContent || interaction.text || '').trim();
-        if (textContent) {
-          findingDetails.tried.push("Interactive Element+Text");
-          // Target the most likely elements first
-          const selector = element.tagName 
-            ? element.tagName.toLowerCase() 
-            : 'a, button, [role="button"], input[type="submit"]';
-            
-          // Use faster getElementsByTagName when possible
-          let candidates: Element[] = [];
-          if (selector === 'a') {
-            candidates = Array.from(document.getElementsByTagName('a'));
-          } else if (selector === 'button') {
-            candidates = Array.from(document.getElementsByTagName('button'));
-          } else {
-            candidates = Array.from(document.querySelectorAll(selector));
-          }
-          
-          // Find exact text match
-          const foundElement = candidates.find(el => 
-            el.textContent?.trim() === textContent
-          ) as HTMLElement;
-          
-          if (foundElement) {
-            console.log('✓ Element found using interactive element+text strategy');
-            return foundElement; // Fast exit!
-          }
-        }
-        
-        // STRATEGY 5: Fallback to explicit selector (medium-high confidence)
-        if (interaction.selector) {
-          findingDetails.tried.push("Explicit Selector");
-          try {
-            const foundElement = document.querySelector(interaction.selector) as HTMLElement;
-            if (foundElement) {
-              console.log('✓ Element found using explicit selector strategy');
-              return foundElement;
-            }
-          } catch (e) {
-            // Invalid selector, continue
           }
         }
         
         // No element found after all strategies
-        console.log(`❌ Element not found. Tried strategies: ${findingDetails.tried.join(', ')}`);
+        console.log(`[ELEMENT-FINDER] All strategies failed. Tried: ${findingDetails.tried.join(', ')}`);
+        
+        // DIAGNOSTIC: Log DOM structure of portals to understand better
+        if (portals.length > 0) {
+          console.log('[ELEMENT-FINDER] Portal DOM structure preview:');
+          portals.forEach((portal, i) => {
+            console.log(`Portal ${i+1} HTML:`, portal.innerHTML.substring(0, 500) + '...');
+          });
+        }
+        
         return null;
       } catch (error) {
-        console.error("Error finding element:", error);
+        console.error("[ELEMENT-FINDER] Error finding element:", error);
         return null;
       }
     }
@@ -357,6 +456,136 @@ export class ElementUtils {
           window.scrollTo(0, middle);
           setTimeout(resolve, 100);
         }
+      });
+    }
+  
+    static findMantineInput(placeholder: string): HTMLElement | null {
+      console.log(`[MANTINE-FINDER] Looking for input with placeholder: "${placeholder}"`);
+      
+      // Try different search strategies from most specific to least
+      
+      // 1. Direct placeholder attribute
+      let inputs = Array.from(document.querySelectorAll(`input[placeholder="${placeholder}"]`));
+      console.log(`[MANTINE-FINDER] Found ${inputs.length} inputs with direct placeholder match`);
+      
+      if (inputs.length > 0) {
+        return inputs[0] as HTMLElement;
+      }
+      
+      // 2. Look inside modals/portals specifically
+      const portals = document.querySelectorAll('[data-portal="true"]');
+      for (const portal of portals) {
+        inputs = Array.from(portal.querySelectorAll(`input[placeholder="${placeholder}"]`));
+        console.log(`[MANTINE-FINDER] Found ${inputs.length} inputs in portal with placeholder match`);
+        
+        if (inputs.length > 0) {
+          return inputs[0] as HTMLElement;
+        }
+        
+        // Try by class pattern for Mantine
+        const mantineInputs = Array.from(portal.querySelectorAll('input[class*="mantine-Input-input"]'));
+        console.log(`[MANTINE-FINDER] Found ${mantineInputs.length} Mantine inputs in portal`);
+        
+        for (const input of mantineInputs) {
+          if (input.getAttribute('placeholder') === placeholder) {
+            console.log('[MANTINE-FINDER] Found matching Mantine input by class + placeholder');
+            return input as HTMLElement;
+          }
+          
+          // Log all found inputs for debugging
+          console.log('[MANTINE-FINDER] Portal input:', {
+            placeholder: input.getAttribute('placeholder'),
+            id: input.id,
+            classes: input.className
+          });
+        }
+      }
+      
+      // 3. Find Mantine inputs by class
+      const allMantineInputs = document.querySelectorAll('input[class*="mantine-Input-input"]');
+      console.log(`[MANTINE-FINDER] Found ${allMantineInputs.length} total Mantine inputs in document`);
+      
+      for (const input of allMantineInputs) {
+        // Log all for debugging
+        console.log('[MANTINE-FINDER] Mantine input:', {
+          placeholder: input.getAttribute('placeholder'),
+          id: input.id,
+          classes: input.className,
+          visible: (input as HTMLElement).offsetParent !== null
+        });
+        
+        if (input.getAttribute('placeholder') === placeholder) {
+          return input as HTMLElement;
+        }
+      }
+      
+      console.log('[MANTINE-FINDER] No matching input found');
+      return null;
+    }
+  
+    static waitForPortalStability(): Promise<void> {
+      return new Promise(resolve => {
+        console.log('[PORTAL-WAIT] Starting portal stability monitoring');
+        
+        // First check if portals exist
+        const initialPortals = document.querySelectorAll('[data-portal="true"]');
+        
+        if (initialPortals.length === 0) {
+          console.log('[PORTAL-WAIT] No portals detected, resolving immediately');
+          resolve();
+          return;
+        }
+        
+        // Track portal state
+        let stableCount = 0;
+        let lastPortalCount = initialPortals.length;
+        let lastModalStructure = '';
+        let attempts = 0;
+        const MAX_ATTEMPTS = 30;
+        
+        const checkPortalStability = () => {
+          attempts++;
+          
+          const portals = document.querySelectorAll('[data-portal="true"]');
+          const modals = document.querySelectorAll('.mantine-Modal-content, [role="dialog"]');
+          
+          // Get a string representation of modal structure to detect changes
+          const modalStructure = Array.from(modals).map(modal => {
+            const rect = modal.getBoundingClientRect();
+            return `${modal.className}:${rect.width}x${rect.height}:${modal.children.length}`;
+          }).join('|');
+          
+          console.log(`[PORTAL-WAIT] Check #${attempts}: ${portals.length} portals, ${modals.length} modals`);
+          
+          // Check if portal count and modal structure have stabilized
+          if (portals.length === lastPortalCount && modalStructure === lastModalStructure) {
+            stableCount++;
+            console.log(`[PORTAL-WAIT] Portal structure stable for ${stableCount} checks`);
+            
+            if (stableCount >= 3 || attempts >= MAX_ATTEMPTS) {
+              console.log('[PORTAL-WAIT] Portal structure has stabilized, resolving');
+              resolve();
+              return;
+            }
+          } else {
+            // Reset stability counter if anything changed
+            stableCount = 0;
+            lastPortalCount = portals.length;
+            lastModalStructure = modalStructure;
+            console.log('[PORTAL-WAIT] Portal structure changed, resetting stability counter');
+          }
+          
+          // Continue checking if not stable yet and not exceeded max attempts
+          if (attempts < MAX_ATTEMPTS) {
+            setTimeout(checkPortalStability, 100);
+          } else {
+            console.log('[PORTAL-WAIT] Max attempts reached, resolving anyway');
+            resolve();
+          }
+        };
+        
+        // Start checking after a small initial delay to allow animations to start
+        setTimeout(checkPortalStability, 200);
       });
     }
   }
