@@ -596,54 +596,17 @@ export class CursorFlowUI {
     highlight.style.width = 'calc(100% + 8px)';  // Add 8px (4px on each side)
     highlight.style.height = 'calc(100% + 8px)'; // Add 8px (4px on each side)
     
+    // Initially hide the highlight until we can position it properly
+    wrapper.style.opacity = '0';
+    
     // Add the wrapper to the document
     document.body.appendChild(wrapper);
     
-    // NEW: Add a small delay to allow animations to complete
-    setTimeout(() => {
-      updatePosition();
-      
-      // Create a MutationObserver to watch for changes to the element
-      const observer = new MutationObserver(() => {
-        updatePosition();
-      });
-      
-      // Watch for changes to the element's attributes and children
-      observer.observe(element, {
-        attributes: true,
-        childList: true,
-        subtree: true
-      });
-      
-      // Store the observer on the wrapper for later cleanup
-      wrapper['observer'] = observer;
-      
-      // NEW: Also observe parent nodes for position changes
-      const parentElement = element.parentElement;
-      if (parentElement) {
-        const parentObserver = new MutationObserver(() => {
-          updatePosition();
-        });
-        
-        parentObserver.observe(parentElement, {
-          attributes: true,
-          attributeFilter: ['style', 'class'],
-          childList: false
-        });
-        
-        // Store for cleanup
-        wrapper['parentObserver'] = parentObserver;
-      }
-      
-      // Update position on scroll and resize
-      const handler = () => updatePosition();
-      window.addEventListener('scroll', handler, { passive: true });
-      window.addEventListener('resize', handler, { passive: true });
-      
-      // Store the handlers on the wrapper for later cleanup
-      wrapper['scrollHandler'] = handler;
-      wrapper['resizeHandler'] = handler;
-    }, 50); // Short delay to let transitions settle
+    // Variables for position stabilization
+    let lastRect = { top: 0, left: 0, width: 0, height: 0 };
+    let stabilityCounter = 0;
+    const MAX_STABILITY_CHECKS = 10;
+    const POSITION_CHECK_INTERVAL = 50; // ms
     
     // Function to update the wrapper position
     const updatePosition = () => {
@@ -651,13 +614,110 @@ export class CursorFlowUI {
       const scrollX = window.scrollX || window.pageXOffset;
       const scrollY = window.scrollY || window.pageYOffset;
       
-      // NEW: Only update if the element has a valid size
+      // Only update if the element has a valid size
       if (rect.width > 0 && rect.height > 0) {
         wrapper.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
         wrapper.style.width = `${rect.width}px`;
         wrapper.style.height = `${rect.height}px`;
+        
+        // Make visible once positioned
+        wrapper.style.opacity = '1';
+        
+        // Check if position has stabilized
+        const positionChanged = 
+          Math.abs(rect.top - lastRect.top) > 1 || 
+          Math.abs(rect.left - lastRect.left) > 1 ||
+          Math.abs(rect.width - lastRect.width) > 1 || 
+          Math.abs(rect.height - lastRect.height) > 1;
+        
+        if (positionChanged) {
+          // Position still changing, reset counter
+          stabilityCounter = 0;
+          // Update last rect
+          lastRect = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+        } else {
+          // Position stable, increment counter
+          stabilityCounter++;
+          
+          // If position stable for several checks, we're done with active checking
+          if (stabilityCounter >= 3 && wrapper['positionInterval']) {
+            clearInterval(wrapper['positionInterval']);
+            wrapper['positionInterval'] = null;
+            console.log('Position stabilized, active monitoring stopped');
+          }
+        }
       }
     };
+    
+    // Start actively monitoring position changes
+    const positionInterval = setInterval(() => {
+      updatePosition();
+      
+      // Stop after max checks to prevent infinite loops
+      if (stabilityCounter >= MAX_STABILITY_CHECKS) {
+        clearInterval(positionInterval);
+        wrapper['positionInterval'] = null;
+        console.log('Position monitoring timed out after max checks');
+      }
+    }, POSITION_CHECK_INTERVAL);
+    
+    // Store interval for cleanup
+    wrapper['positionInterval'] = positionInterval;
+    
+    // Create a MutationObserver to watch for changes after active monitoring ends
+    const observer = new MutationObserver(() => {
+      updatePosition();
+    });
+    
+    // Watch for changes to the element and parent elements
+    observer.observe(element, {
+      attributes: true,
+      childList: true,
+      subtree: true
+    });
+    
+    // Also observe the nearest positioned parent for layout changes
+    let parent = element.parentElement;
+    let positionedParent = null;
+    
+    // Find the closest parent with relative/absolute positioning
+    while (parent) {
+      const position = window.getComputedStyle(parent).position;
+      if (position === 'relative' || position === 'absolute') {
+        positionedParent = parent;
+        break;
+      }
+      parent = parent.parentElement;
+    }
+    
+    if (positionedParent) {
+      const parentObserver = new MutationObserver(() => {
+        updatePosition();
+      });
+      
+      parentObserver.observe(positionedParent, {
+        attributes: true,
+        attributeFilter: ['style', 'class'],
+        childList: true
+      });
+      
+      wrapper['parentObserver'] = parentObserver;
+    }
+    
+    // Store the observer on the wrapper for later cleanup
+    wrapper['observer'] = observer;
+    
+    // Update position on scroll and resize
+    const handler = () => requestAnimationFrame(updatePosition);
+    window.addEventListener('scroll', handler, { passive: true });
+    window.addEventListener('resize', handler, { passive: true });
+    
+    // Store the handlers on the wrapper for later cleanup
+    wrapper['scrollHandler'] = handler;
+    wrapper['resizeHandler'] = handler;
+    
+    // Initial position update
+    updatePosition();
   }
 
   // Add a new method to properly clean up all UI components
@@ -668,6 +728,12 @@ export class CursorFlowUI {
       // Clean up event listeners
       if (container['observer']) {
         container['observer'].disconnect();
+      }
+      if (container['parentObserver']) {
+        container['parentObserver'].disconnect();
+      }
+      if (container['positionInterval']) {
+        clearInterval(container['positionInterval']);
       }
       if (container['scrollHandler']) {
         window.removeEventListener('scroll', container['scrollHandler']);
@@ -684,7 +750,10 @@ export class CursorFlowUI {
         enhancedWrapper['observer'].disconnect();
       }
       if (enhancedWrapper['parentObserver']) {
-        enhancedWrapper['parentObserver'].disconnect(); // NEW: Also disconnect parent observer
+        enhancedWrapper['parentObserver'].disconnect();
+      }
+      if (enhancedWrapper['positionInterval']) {
+        clearInterval(enhancedWrapper['positionInterval']);
       }
       if (enhancedWrapper['scrollHandler']) {
         window.removeEventListener('scroll', enhancedWrapper['scrollHandler']);
