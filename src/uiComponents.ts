@@ -571,6 +571,16 @@ export class CursorFlowUI {
   static positionHighlightOnElement(element: HTMLElement, highlight: HTMLElement | null): void {
     if (!highlight || !element) return;
     
+    // Debug log: Initial element state
+    console.log('DEBUG-HIGHLIGHT: Initial element state:', {
+      tag: element.tagName,
+      id: element.id,
+      className: element.className,
+      rect: element.getBoundingClientRect(),
+      isConnected: element.isConnected,
+      textContent: element.textContent?.trim()
+    });
+    
     // First, remove any existing highlight wrapper
     const existingWrapper = document.querySelector('.hyphen-highlight-wrapper');
     if (existingWrapper && existingWrapper.parentNode) {
@@ -605,7 +615,7 @@ export class CursorFlowUI {
     // Variables for position stabilization
     let lastRect = { top: 0, left: 0, width: 0, height: 0 };
     let stabilityCounter = 0;
-    const MAX_STABILITY_CHECKS = 10;
+    const MAX_STABILITY_CHECKS = 30; // Increased from 10 to 30
     const POSITION_CHECK_INTERVAL = 50; // ms
     
     // Function to update the wrapper position
@@ -613,6 +623,20 @@ export class CursorFlowUI {
       const rect = element.getBoundingClientRect();
       const scrollX = window.scrollX || window.pageXOffset;
       const scrollY = window.scrollY || window.pageYOffset;
+      
+      // Debug log: Position updates
+      console.log('DEBUG-HIGHLIGHT: Position update:', {
+        check: stabilityCounter,
+        rect: {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height
+        },
+        computedDisplay: window.getComputedStyle(element).display,
+        computedVisibility: window.getComputedStyle(element).visibility,
+        computedOpacity: window.getComputedStyle(element).opacity
+      });
       
       // Only update if the element has a valid size
       if (rect.width > 0 && rect.height > 0) {
@@ -635,6 +659,7 @@ export class CursorFlowUI {
           stabilityCounter = 0;
           // Update last rect
           lastRect = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+          console.log('DEBUG-HIGHLIGHT: Position changed, reset counter');
         } else {
           // Position stable, increment counter
           stabilityCounter++;
@@ -643,9 +668,11 @@ export class CursorFlowUI {
           if (stabilityCounter >= 3 && wrapper['positionInterval']) {
             clearInterval(wrapper['positionInterval']);
             wrapper['positionInterval'] = null;
-            console.log('Position stabilized, active monitoring stopped');
+            console.log('DEBUG-HIGHLIGHT: Position stabilized, active monitoring stopped');
           }
         }
+      } else {
+        console.log('DEBUG-HIGHLIGHT: Invalid element size, skipping update');
       }
     };
     
@@ -657,24 +684,12 @@ export class CursorFlowUI {
       if (stabilityCounter >= MAX_STABILITY_CHECKS) {
         clearInterval(positionInterval);
         wrapper['positionInterval'] = null;
-        console.log('Position monitoring timed out after max checks');
+        console.log('DEBUG-HIGHLIGHT: Position monitoring timed out after max checks');
       }
     }, POSITION_CHECK_INTERVAL);
     
     // Store interval for cleanup
     wrapper['positionInterval'] = positionInterval;
-    
-    // Create a MutationObserver to watch for changes after active monitoring ends
-    const observer = new MutationObserver(() => {
-      updatePosition();
-    });
-    
-    // Watch for changes to the element and parent elements
-    observer.observe(element, {
-      attributes: true,
-      childList: true,
-      subtree: true
-    });
     
     // Also observe the nearest positioned parent for layout changes
     let parent = element.parentElement;
@@ -685,13 +700,25 @@ export class CursorFlowUI {
       const position = window.getComputedStyle(parent).position;
       if (position === 'relative' || position === 'absolute') {
         positionedParent = parent;
+        console.log('DEBUG-HIGHLIGHT: Found positioned parent:', {
+          tag: parent.tagName,
+          className: parent.className,
+          position: position,
+          rect: parent.getBoundingClientRect()
+        });
         break;
       }
       parent = parent.parentElement;
     }
     
     if (positionedParent) {
-      const parentObserver = new MutationObserver(() => {
+      const parentObserver = new MutationObserver((mutations) => {
+        console.log('DEBUG-HIGHLIGHT: Positioned parent mutation:', 
+          mutations.map(m => ({
+            type: m.type, 
+            attributeName: m.attributeName,
+            target: (m.target as Element).className
+          })));
         updatePosition();
       });
       
@@ -702,9 +729,25 @@ export class CursorFlowUI {
       });
       
       wrapper['parentObserver'] = parentObserver;
+    } else {
+      console.log('DEBUG-HIGHLIGHT: No positioned parent found');
     }
     
-    // Store the observer on the wrapper for later cleanup
+    // Create a MutationObserver to watch for changes to the target element
+    const observer = new MutationObserver((mutations) => {
+      console.log('DEBUG-HIGHLIGHT: Element mutation detected', 
+        mutations.map(m => ({type: m.type, target: (m.target as Element).tagName})));
+      updatePosition();
+    });
+    
+    // Watch for changes to the element
+    observer.observe(element, {
+      attributes: true,
+      childList: true,
+      subtree: true
+    });
+    
+    // Store the observer on the wrapper for cleanup
     wrapper['observer'] = observer;
     
     // Update position on scroll and resize
