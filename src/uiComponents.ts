@@ -59,6 +59,25 @@ export class CursorFlowUI {
     button.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
     button.style.zIndex = '9999';
     
+    // Load saved position if available
+    try {
+      const savedPosition = localStorage.getItem('hyphen-button-position');
+      if (savedPosition) {
+        const position = JSON.parse(savedPosition);
+        if (position.right) button.style.right = position.right;
+        if (position.bottom) button.style.bottom = position.bottom;
+        if (position.left) button.style.left = position.left;
+        if (position.top) button.style.top = position.top;
+        
+        // If using left, remove right
+        if (position.left) button.style.removeProperty('right');
+        // If using top, remove bottom
+        if (position.top) button.style.removeProperty('bottom');
+      }
+    } catch (e) {
+      console.warn('Failed to load saved button position', e);
+    }
+    
     // Add hover effect
     button.addEventListener('mouseover', () => {
       button.style.backgroundColor = color ? adjustColor(color, -20) : '#0069d9';
@@ -71,9 +90,137 @@ export class CursorFlowUI {
     // Add click handler
     button.addEventListener('click', onClick);
     
+    // Make the button draggable
+    this.makeDraggable(button);
+    
     return button;
   }
   
+  /**
+   * Make an element draggable
+   */
+  private static makeDraggable(element: HTMLElement): void {
+    let isDragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+    let startPosition = { x: 0, y: 0 };
+    
+    // Add a drag handle/indicator
+    const dragIndicator = document.createElement('div');
+    dragIndicator.style.position = 'absolute';
+    dragIndicator.style.top = '3px';
+    dragIndicator.style.left = '3px';
+    dragIndicator.style.width = '10px';
+    dragIndicator.style.height = '10px';
+    dragIndicator.style.borderRadius = '50%';
+    dragIndicator.style.backgroundColor = 'rgba(255, 255, 255, 0.4)';
+    dragIndicator.style.cursor = 'move';
+    dragIndicator.title = 'Drag to move';
+    
+    // Append the drag indicator to the element
+    element.appendChild(dragIndicator);
+    
+    // Add a CSS class to show we're in dragging mode
+    element.classList.add('hyphen-draggable');
+    
+    // Define event handlers (keep references to remove them later)
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      
+      // Calculate new position
+      const x = e.clientX - offsetX;
+      const y = e.clientY - offsetY;
+      
+      // Use the viewport dimensions to ensure the button stays within visible area
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const buttonWidth = element.offsetWidth;
+      const buttonHeight = element.offsetHeight;
+      
+      // Calculate the bounds (keep button within viewport)
+      const minX = 0;
+      const maxX = viewportWidth - buttonWidth;
+      const minY = 0;
+      const maxY = viewportHeight - buttonHeight;
+      
+      // Apply bounds
+      const boundedX = Math.max(minX, Math.min(maxX, x));
+      const boundedY = Math.max(minY, Math.min(maxY, y));
+      
+      // Update the position
+      // We need to decide whether to use left/right and top/bottom
+      // For simplicity, use left/top positioning
+      element.style.left = `${boundedX}px`;
+      element.style.top = `${boundedY}px`;
+      
+      // Remove the original right/bottom positioning
+      element.style.removeProperty('right');
+      element.style.removeProperty('bottom');
+    };
+    
+    const handleMouseUp = () => {
+      if (!isDragging) return;
+      
+      // Stop dragging
+      isDragging = false;
+      
+      // Reset visual styles
+      element.style.opacity = '1';
+      element.style.transition = 'opacity 0.2s ease';
+      
+      // Save the position for future sessions
+      try {
+        const rect = element.getBoundingClientRect();
+        const position = {
+          left: `${rect.left}px`,
+          top: `${rect.top}px`
+        };
+        localStorage.setItem('hyphen-button-position', JSON.stringify(position));
+      } catch (e) {
+        console.warn('Failed to save button position', e);
+      }
+      
+      // Remove global event listeners
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    // Mouse down event - start dragging
+    dragIndicator.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      
+      // Get element's current position
+      const rect = element.getBoundingClientRect();
+      
+      // Calculate cursor offset relative to the element
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      
+      // Record original positions to compute deltas
+      startPosition = {
+        x: e.clientX,
+        y: e.clientY
+      };
+      
+      // Add visual indicator that we're dragging
+      element.style.opacity = '0.8';
+      element.style.transition = 'none';
+      
+      // Add global event listeners
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      
+      // Prevent text selection during drag
+      e.preventDefault();
+    });
+    
+    // Store these functions so they can be removed when the element is destroyed
+    (element as any)._hyphenDragHandlers = {
+      mouseMove: handleMouseMove,
+      mouseUp: handleMouseUp
+    };
+  }
+
   // Helper function to adjust color brightness
   static adjustColor(color: string, amount: number): string {
     const colorObj = new (window as any).Option().style;
@@ -887,6 +1034,16 @@ export class CursorFlowUI {
       }
       if (wrapper.parentNode) {
         wrapper.parentNode.removeChild(wrapper);
+      }
+    });
+    
+    // Clean up draggable elements' event handlers
+    const draggables = document.querySelectorAll('.hyphen-draggable') as NodeListOf<EnhancedHTMLElement>;
+    draggables.forEach(draggable => {
+      if (draggable['_hyphenDragHandlers']) {
+        document.removeEventListener('mousemove', draggable['_hyphenDragHandlers'].mouseMove);
+        document.removeEventListener('mouseup', draggable['_hyphenDragHandlers'].mouseUp);
+        delete draggable['_hyphenDragHandlers'];
       }
     });
     
