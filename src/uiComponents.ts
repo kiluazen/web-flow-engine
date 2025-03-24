@@ -662,51 +662,112 @@ export class CursorFlowUI {
     const originalText = popup.textContent || '';
     popup.textContent = '';
     
-    // Style the popup
+    // Style the popup - start with transparent until positioned
     popup.style.position = 'absolute';
-    popup.style.left = '100%'; // Position at the right edge of wrapper
-    popup.style.top = '100%';  // Position at the bottom edge of wrapper
-    popup.style.marginLeft = '5px'; // Small gap between cursor and popup
     popup.style.zIndex = '9998';
     popup.style.backgroundColor = '#ffffff';
     popup.style.border = '1px solid #e0e0e0';
     popup.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)';
     popup.style.borderRadius = '4px';
     popup.style.padding = '8px 12px';
-    popup.style.minWidth = '150px';      // Minimum width to prevent too narrow wrapping
-    popup.style.maxWidth = '300px';      // Maximum width for very long content
-    popup.style.width = 'max-content';   // Let content determine width up to maxWidth
-    popup.style.whiteSpace = 'normal';   // Allow wrapping
-    popup.style.wordWrap = 'break-word'; // Break long words if needed
-    popup.style.wordBreak = 'normal';    // Use normal word breaking rules
-    popup.style.opacity = '0';           // Start invisible
-    popup.style.transition = 'opacity 0.3s ease'; // Smooth fade in
+    popup.style.minWidth = '150px';
+    popup.style.maxWidth = '300px';
+    popup.style.width = 'max-content';
+    popup.style.whiteSpace = 'normal';
+    popup.style.wordWrap = 'break-word';
+    popup.style.wordBreak = 'normal';
+    popup.style.opacity = '0';
+    popup.style.transition = 'opacity 0.3s ease';
     
-    // Viewport boundary checks
-    const checkBoundaries = () => {
-      const popupRect = popup.getBoundingClientRect();
+    // Set an initial position (will be checked later)
+    popup.style.left = '100%';
+    popup.style.top = '100%';
+    popup.style.marginLeft = '5px';
+    
+    // First pass: let the browser calculate natural width/height with max-content
+    const prelimPosition = () => {
+      // Get viewport dimensions
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
       
-      // Reset positions first
-      popup.style.left = '100%';
-      popup.style.top = '100%';
-      popup.style.transform = 'none';
+      // Get the element's natural size with max-content
+      const popupRect = popup.getBoundingClientRect();
       
-      // Check right edge
-      if (popupRect.right > viewportWidth) {
-        popup.style.left = 'auto';
-        popup.style.right = '100%';
-        popup.style.marginLeft = '0';
-        popup.style.marginRight = '5px';
+      // Get cursor wrapper position
+      const wrapperRect = wrapper.getBoundingClientRect();
+      
+      // Available space in each direction
+      const spaceRight = viewportWidth - (wrapperRect.right + 5); // 5px margin
+      const spaceLeft = wrapperRect.left - 5;
+      const spaceBottom = viewportHeight - (wrapperRect.bottom + 5);
+      const spaceTop = wrapperRect.top - 5;
+      
+      // Determine if we need to adjust width based on available space
+      if (popupRect.width > spaceRight) {
+        // Not enough space on right, adjust width OR change position
+        if (spaceRight >= 150) {
+          // At least minimum width available, just constrain to available space
+          popup.style.maxWidth = `${spaceRight - 10}px`; // 10px safety margin
+          popup.style.left = '100%';
+          popup.style.right = 'auto';
+          popup.style.marginLeft = '5px';
+          popup.style.marginRight = '0';
+        } else if (spaceLeft >= 150) {
+          // Try positioning on the left side
+          popup.style.maxWidth = `${spaceLeft - 10}px`; // 10px safety margin
+          popup.style.left = 'auto';
+          popup.style.right = '100%';
+          popup.style.marginLeft = '0';
+          popup.style.marginRight = '5px';
+        } else {
+          // Not enough space on either side, use available space in optimal direction
+          if (spaceRight >= spaceLeft) {
+            popup.style.maxWidth = `${spaceRight - 10}px`;
+            popup.style.left = '100%';
+            popup.style.right = 'auto';
+            popup.style.marginLeft = '5px';
+            popup.style.marginRight = '0';
+          } else {
+            popup.style.maxWidth = `${spaceLeft - 10}px`;
+            popup.style.left = 'auto';
+            popup.style.right = '100%';
+            popup.style.marginLeft = '0';
+            popup.style.marginRight = '5px';
+          }
+        }
       }
       
-      // Check bottom edge
-      if (popupRect.bottom > viewportHeight) {
-        popup.style.top = 'auto';
-        popup.style.bottom = '100%';
+      // Check vertical positioning - prioritize bottom positioning
+      if (popupRect.height > spaceBottom) {
+        // Not enough space at the bottom
+        if (spaceTop >= popupRect.height) {
+          // Position on top
+          popup.style.top = 'auto';
+          popup.style.bottom = '100%';
+        }
+        // Otherwise leave it at the bottom and accept overflow - better than
+        // potentially hiding the beginning of text if at the top
       }
+      
+      console.log('[TEXT-DEBUG] Positioned popup with available space:', {
+        spaceRight,
+        spaceLeft,
+        spaceBottom,
+        spaceTop,
+        popupWidth: popupRect.width,
+        popupHeight: popupRect.height,
+        finalPosition: {
+          left: popup.style.left,
+          right: popup.style.right,
+          top: popup.style.top,
+          bottom: popup.style.bottom,
+          maxWidth: popup.style.maxWidth
+        }
+      });
     };
+    
+    // Run preliminary positioning
+    prelimPosition();
     
     // Streaming text effect
     let charIndex = 0;
@@ -717,16 +778,22 @@ export class CursorFlowUI {
         popup.textContent = originalText.substring(0, charIndex + 1);
         charIndex++;
         setTimeout(streamText, 30);
-        checkBoundaries(); // Check boundaries after each character
+        
+        // Check if we're at 25%, 50%, or 75% of the content
+        // and recheck boundary only at these points to prevent jittering
+        if (charIndex === Math.floor(textLength * 0.25) || 
+            charIndex === Math.floor(textLength * 0.5) || 
+            charIndex === Math.floor(textLength * 0.75)) {
+          prelimPosition();
+        }
       }
     };
     
-    // Start the sequence:
-    // 1. Wait for cursor animation
+    // Start the sequence after a short delay to ensure positioning
     setTimeout(() => {
-      // 2. Make popup visible
+      // Make popup visible
       popup.style.opacity = '1';
-      // 3. Start streaming text
+      // Start streaming text
       streamText();
     }, 500);
   }
