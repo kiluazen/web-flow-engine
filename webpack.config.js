@@ -34,7 +34,8 @@ module.exports = {
   plugins: [
     new CopyPlugin({
       patterns: [
-        { from: 'assets', to: 'assets' }
+        { from: 'assets', to: 'assets' },
+        { from: 'src/build-dom-tree.js', to: 'build-dom-tree.js' }
       ]
     })
   ],
