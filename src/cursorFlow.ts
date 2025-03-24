@@ -28,7 +28,7 @@ export default class CursorFlow {
       this.options = {
         ...options,
         theme: options.theme || {},
-        buttonText: options.buttonText || 'Guides',
+        buttonText: options.buttonText || 'Hyphenbox Co-pilot',
         guidesButtonText: options.guidesButtonText || 'Select Guide',
         debug: options.debug || false
       };
