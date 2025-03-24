@@ -43,26 +43,28 @@ export class CursorFlowUI {
     const button = document.createElement('button');
     button.className = 'hyphen-start-button';
     
-    // Create modern pointer icon layout with Co-pilot text
+    // Create modern pointer icon layout with cursor icon
     button.innerHTML = `
         <div class="hyphen-button-content" style="display: flex; align-items: center; gap: 8px;">
-            <div class="hyphen-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M4 11a9 9 0 0 1 9 9"></path>
-                    <path d="M4 4a16 16 0 0 1 16 16"></path>
-                    <circle cx="5" cy="19" r="1"></circle>
+            <div class="hyphen-icon" style="display: flex; align-items: center;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" 
+                    style="color: #1a1a1a; min-width: 16px;">
+                    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" 
+                          fill="currentColor" 
+                          stroke="currentColor" 
+                          stroke-width="2"/>
                 </svg>
             </div>
-            <span class="hyphen-text">Co-pilot</span>
+            <span class="hyphen-text" style="white-space: nowrap;">${text}</span>
         </div>
     `;
     
-    // Modern styling
+    // Modern styling with adjusted padding for icon
     button.style.cssText = `
         position: fixed;
         bottom: 20px;
         left: 20px;
-        padding: 12px 20px;
+        padding: 10px 16px;
         background-color: #ffffff;
         color: #1a1a1a;
         border: none;
@@ -76,6 +78,7 @@ export class CursorFlowUI {
         align-items: center;
         transition: all 0.2s ease;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        min-height: 40px;
     `;
 
     // Add hover effect
