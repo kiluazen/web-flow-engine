@@ -6,6 +6,9 @@ export class DomAnalyzer {
   private static domTree: any = null;
   private static highlightContainerId = "hyphen-highlight-container";
   
+  // Add a new property to track fallback mode
+  private static _usingFallback: boolean = false;
+  
   /**
    * Initialize the DOM analyzer by building the DOM tree
    */
@@ -14,8 +17,10 @@ export class DomAnalyzer {
       // Ensure script is loaded
       const scriptLoaded = await this.loadBuildDomTreeScript();
       if (!scriptLoaded) {
-        console.error('Could not load build-dom-tree.js');
-        return false;
+        console.log('[HIGHLIGHT-DEBUG] Could not load build-dom-tree.js, using fallback method');
+        // Set a flag to indicate we're in fallback mode
+        this._usingFallback = true;
+        return true; // Return success anyway so the app continues
       }
       
       // Clear any existing highlights
@@ -32,11 +37,13 @@ export class DomAnalyzer {
       this.domTree = result;
       this.domMap = result.map;
       
-      console.log('DOM tree built successfully, found nodes:', Object.keys(this.domMap).length);
+      console.log('[HIGHLIGHT-DEBUG] DOM tree built successfully, found nodes:', Object.keys(this.domMap).length);
       return true;
     } catch (error) {
-      console.error('Failed to initialize DOM analyzer:', error);
-      return false;
+      console.error('[HIGHLIGHT-DEBUG] Failed to initialize DOM analyzer:', error);
+      // Set flag to indicate we're in fallback mode
+      this._usingFallback = true;
+      return true; // Return success anyway so the app continues
     }
   }
   
@@ -69,6 +76,25 @@ export class DomAnalyzer {
   static highlightElement(element: HTMLElement, index: number, color: string = "#FF6B00"): void {
     if (!element) return;
     
+    if (this._usingFallback) {
+      // Fallback direct CSS highlighting
+      console.log('[HIGHLIGHT-DEBUG] Using fallback highlighting method');
+      // Add a simple outline directly to the element
+      const originalOutline = element.style.outline;
+      const originalBackground = element.style.backgroundColor;
+      
+      element.style.outline = `2px solid ${color}`;
+      element.style.backgroundColor = `${color}1A`; // Add 10% opacity background
+      
+      // Store original styles for later cleanup
+      element.dataset.originalOutline = originalOutline;
+      element.dataset.originalBackground = originalBackground;
+      element.dataset.highlightedByDomAnalyzer = 'true';
+      
+      return;
+    }
+    
+    // Standard version continues below
     // Create or get highlight container
     let container = document.getElementById(this.highlightContainerId);
     if (!container) {
@@ -163,6 +189,25 @@ export class DomAnalyzer {
    * Clear all highlights
    */
   static clearHighlights(): void {
+    if (this._usingFallback) {
+      // Fallback cleanup method
+      console.log('[HIGHLIGHT-DEBUG] Using fallback cleanup method');
+      // Find all elements we've highlighted
+      const highlightedElements = document.querySelectorAll('[data-highlighted-by-dom-analyzer="true"]');
+      highlightedElements.forEach(el => {
+        const element = el as HTMLElement;
+        // Restore original styles
+        element.style.outline = element.dataset.originalOutline || '';
+        element.style.backgroundColor = element.dataset.originalBackground || '';
+        // Remove our data attributes
+        delete element.dataset.originalOutline;
+        delete element.dataset.originalBackground;
+        delete element.dataset.highlightedByDomAnalyzer;
+      });
+      return;
+    }
+    
+    // Standard version continues
     const container = document.getElementById(this.highlightContainerId);
     if (container) {
       container.innerHTML = '';
@@ -260,8 +305,8 @@ export class DomAnalyzer {
         return;
       }
       
-      // Get the script path - assuming it's in the same directory as this file
-      const scriptPath = '/build-dom-tree.js'; // Adjust path as needed
+      // FIX: Remove the leading slash to make the path relative
+      const scriptPath = 'build-dom-tree.js'; // Relative to current URL
       
       const script = document.createElement('script');
       script.src = scriptPath;
