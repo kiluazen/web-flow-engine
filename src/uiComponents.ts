@@ -43,12 +43,14 @@ export class CursorFlowUI {
     const button = document.createElement('button');
     button.className = 'hyphen-start-button';
     
-    // Create modern pointer icon layout
+    // Create modern pointer icon layout with Co-pilot text
     button.innerHTML = `
-        <div class="hyphen-button-content">
+        <div class="hyphen-button-content" style="display: flex; align-items: center; gap: 8px;">
             <div class="hyphen-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-                    <path fill="currentColor" d="M13.92 11.99l-4.95 4.95-2.12-2.12 4.95-4.95-4.95-4.95 2.12-2.12 4.95 4.95 4.95-4.95 2.12 2.12-4.95 4.95 4.95 4.95-2.12 2.12z"/>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 11a9 9 0 0 1 9 9"></path>
+                    <path d="M4 4a16 16 0 0 1 16 16"></path>
+                    <circle cx="5" cy="19" r="1"></circle>
                 </svg>
             </div>
             <span class="hyphen-text">Co-pilot</span>
@@ -85,6 +87,15 @@ export class CursorFlowUI {
     button.addEventListener('mouseout', () => {
         button.style.transform = 'translateY(0)';
         button.style.boxShadow = '0 2px 12px rgba(0,0,0,0.1)';
+    });
+
+    // Add click handler
+    button.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof onClick === 'function') {
+            onClick();
+        }
     });
 
     // Make draggable
