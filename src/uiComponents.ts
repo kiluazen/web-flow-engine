@@ -47,12 +47,14 @@ export class CursorFlowUI {
     button.innerHTML = `
         <div class="hyphen-button-content" style="display: flex; align-items: center; gap: 8px;">
             <div class="hyphen-icon" style="display: flex; align-items: center;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" 
-                    style="color: #1a1a1a; min-width: 16px;">
-                    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" 
-                          fill="currentColor" 
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" 
+                    style="display: block;">
+                    <path d="M1 1l5 12.5 2.5-5.5 5.5-2.5L1 1z" 
+                          fill="none"
                           stroke="currentColor" 
-                          stroke-width="2"/>
+                          stroke-width="1.5"
+                          stroke-linejoin="round"
+                          stroke-linecap="round"/>
                 </svg>
             </div>
             <span class="hyphen-text" style="white-space: nowrap;">${text}</span>
