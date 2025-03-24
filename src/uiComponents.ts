@@ -43,70 +43,51 @@ export class CursorFlowUI {
     const button = document.createElement('button');
     button.className = 'hyphen-start-button';
     
-    // Create modern button content with icon and text
+    // Create modern pointer icon layout
     button.innerHTML = `
-      <div class="hyphen-button-content">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M13 6L7 12L13 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <circle cx="12" cy="12" r="11" stroke="currentColor" stroke-width="2"/>
-        </svg>
-        <span>Co-pilot</span>
-      </div>
+        <div class="hyphen-button-content">
+            <div class="hyphen-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                    <path fill="currentColor" d="M13.92 11.99l-4.95 4.95-2.12-2.12 4.95-4.95-4.95-4.95 2.12-2.12 4.95 4.95 4.95-4.95 2.12 2.12-4.95 4.95 4.95 4.95-2.12 2.12z"/>
+                </svg>
+            </div>
+            <span class="hyphen-text">Co-pilot</span>
+        </div>
     `;
     
     // Modern styling
-    button.style.position = 'fixed';
-    button.style.bottom = '20px';
-    button.style.right = '20px';
-    button.style.padding = '12px 20px';
-    button.style.backgroundColor = '#ffffff';
-    button.style.color = '#1a1a1a';
-    button.style.border = 'none';
-    button.style.borderRadius = '16px';
-    button.style.fontSize = '15px';
-    button.style.fontWeight = '500';
-    button.style.cursor = 'pointer';
-    button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-    button.style.zIndex = '9999';
-    button.style.transition = 'all 0.2s ease';
-    button.style.display = 'flex';
-    button.style.alignItems = 'center';
-    button.style.gap = '8px';
-    
-    // Load saved position if available
-    try {
-      const savedPosition = localStorage.getItem('hyphen-button-position');
-      if (savedPosition) {
-        const position = JSON.parse(savedPosition);
-        if (position.right) button.style.right = position.right;
-        if (position.bottom) button.style.bottom = position.bottom;
-        if (position.left) button.style.left = position.left;
-        if (position.top) button.style.top = position.top;
-        
-        // If using left, remove right
-        if (position.left) button.style.removeProperty('right');
-        // If using top, remove bottom
-        if (position.top) button.style.removeProperty('bottom');
-      }
-    } catch (e) {
-      console.warn('Failed to load saved button position', e);
-    }
-    
-    // Enhanced hover effect
+    button.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        padding: 12px 20px;
+        background-color: #ffffff;
+        color: #1a1a1a;
+        border: none;
+        border-radius: 12px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        transition: all 0.2s ease;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    `;
+
+    // Add hover effect
     button.addEventListener('mouseover', () => {
-      button.style.transform = 'translateY(-2px)';
-      button.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
+        button.style.transform = 'translateY(-2px)';
+        button.style.boxShadow = '0 4px 16px rgba(0,0,0,0.12)';
     });
     
     button.addEventListener('mouseout', () => {
-      button.style.transform = 'translateY(0)';
-      button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+        button.style.transform = 'translateY(0)';
+        button.style.boxShadow = '0 2px 12px rgba(0,0,0,0.1)';
     });
-    
-    // Add click handler
-    button.addEventListener('click', onClick);
-    
-    // Make the button draggable
+
+    // Make draggable
     this.makeDraggable(button);
     
     return button;
@@ -264,120 +245,136 @@ export class CursorFlowUI {
   }
 
   static showGuidesDropdown(guides: any[], guideButton: HTMLElement, onSelect: (guideData: any) => void): HTMLElement {
-    // Create modern drawer container
-    const drawer = document.createElement('div');
-    drawer.className = 'hyphen-drawer';
+    const dropdown = document.createElement('div');
+    dropdown.className = 'hyphen-dropdown';
     
-    // Style the drawer
-    drawer.style.position = 'fixed';
-    drawer.style.right = '0';
-    drawer.style.top = '0';
-    drawer.style.width = '320px';
-    drawer.style.height = '100vh';
-    drawer.style.backgroundColor = '#ffffff';
-    drawer.style.boxShadow = '-4px 0 24px rgba(0,0,0,0.1)';
-    drawer.style.zIndex = '10000';
-    drawer.style.transition = 'transform 0.3s ease';
-    drawer.style.transform = 'translateX(100%)';
-    drawer.style.padding = '24px';
-    drawer.style.display = 'flex';
-    drawer.style.flexDirection = 'column';
+    // Modern styling for dropdown
+    dropdown.style.cssText = `
+        position: fixed;
+        bottom: 80px;
+        left: 20px;
+        width: 320px;
+        max-height: 400px;
+        background-color: #ffffff;
+        border-radius: 16px;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+        z-index: 10000;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    `;
     
-    // Add drawer header
+    // Add header with modern design
     const header = document.createElement('div');
-    header.style.display = 'flex';
-    header.style.alignItems = 'center';
-    header.style.justifyContent = 'space-between';
-    header.style.marginBottom = '24px';
+    header.style.cssText = `
+        padding: 20px;
+        font-weight: 600;
+        font-size: 16px;
+        color: #1a1a1a;
+        border-bottom: 1px solid #f0f0f0;
+    `;
+    header.textContent = 'Select a Guide';
+    dropdown.appendChild(header);
     
-    const title = document.createElement('h2');
-    title.textContent = 'Available Guides';
-    title.style.margin = '0';
-    title.style.fontSize = '20px';
-    title.style.fontWeight = '600';
+    // Create scrollable content area
+    const content = document.createElement('div');
+    content.style.cssText = `
+        max-height: 320px;
+        overflow-y: auto;
+        padding: 8px 0;
+    `;
     
-    const closeButton = document.createElement('button');
-    closeButton.innerHTML = '&times;';
-    closeButton.style.background = 'none';
-    closeButton.style.border = 'none';
-    closeButton.style.fontSize = '24px';
-    closeButton.style.cursor = 'pointer';
-    closeButton.style.padding = '4px';
-    closeButton.style.color = '#666';
+    if (!guides || guides.length === 0) {
+        const noGuides = document.createElement('div');
+        noGuides.style.cssText = `
+            padding: 16px 20px;
+            color: #666;
+            font-style: italic;
+            font-size: 14px;
+        `;
+        noGuides.textContent = 'No guides available';
+        content.appendChild(noGuides);
+    } else {
+        guides.forEach(guide => {
+            const item = document.createElement('div');
+            item.className = 'hyphen-dropdown-item';
+            
+            // Modern list item styling
+            item.style.cssText = `
+                padding: 12px 20px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                color: #1a1a1a;
+                font-size: 14px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            `;
+            
+            // Add guide icon
+            item.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 5l7 7-7 7"></path>
+                    <path d="M5 12h14"></path>
+                </svg>
+                <span>${guide.name}</span>
+            `;
+            
+            item.addEventListener('mouseover', () => {
+                item.style.backgroundColor = '#f8f8f8';
+            });
+            
+            item.addEventListener('mouseout', () => {
+                item.style.backgroundColor = '';
+            });
+            
+            item.addEventListener('click', (event) => {
+                event.stopPropagation();
+                onSelect(guide);
+                if (document.body.contains(dropdown)) {
+                    document.body.removeChild(dropdown);
+                }
+            });
+            
+            content.appendChild(item);
+        });
+    }
     
-    header.appendChild(title);
-    header.appendChild(closeButton);
-    drawer.appendChild(header);
-    
-    // Add guides list
-    const guidesList = document.createElement('div');
-    guidesList.style.display = 'flex';
-    guidesList.style.flexDirection = 'column';
-    guidesList.style.gap = '12px';
-    guidesList.style.overflowY = 'auto';
-    
-    guides.forEach(guide => {
-      const item = document.createElement('div');
-      item.className = 'hyphen-guide-item';
-      
-      item.innerHTML = `
-        <div class="guide-content">
-          <div class="guide-title">${guide.name}</div>
-          ${guide.description ? `<div class="guide-description">${guide.description}</div>` : ''}
-        </div>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      `;
-      
-      // Style guide item
-      item.style.padding = '16px';
-      item.style.backgroundColor = '#f8f9fa';
-      item.style.borderRadius = '12px';
-      item.style.cursor = 'pointer';
-      item.style.transition = 'all 0.2s ease';
-      item.style.display = 'flex';
-      item.style.alignItems = 'center';
-      item.style.justifyContent = 'space-between';
-      
-      // Add hover effect
-      item.addEventListener('mouseover', () => {
-        item.style.backgroundColor = '#f0f1f2';
-        item.style.transform = 'translateX(-4px)';
-      });
-      
-      item.addEventListener('mouseout', () => {
-        item.style.backgroundColor = '#f8f9fa';
-        item.style.transform = 'translateX(0)';
-      });
-      
-      item.addEventListener('click', () => {
-        onSelect(guide);
-        drawer.style.transform = 'translateX(100%)';
-      });
-      
-      guidesList.appendChild(item);
+    dropdown.appendChild(content);
+    document.body.appendChild(dropdown);
+
+    // Add smooth entrance animation
+    dropdown.animate([
+        { opacity: 0, transform: 'translateY(10px)' },
+        { opacity: 1, transform: 'translateY(0)' }
+    ], {
+        duration: 200,
+        easing: 'ease-out'
     });
     
-    drawer.appendChild(guidesList);
-    
-    // Add to DOM and animate in
-    document.body.appendChild(drawer);
-    requestAnimationFrame(() => {
-      drawer.style.transform = 'translateX(0)';
-    });
-    
-    // Handle close button
-    closeButton.addEventListener('click', () => {
-      drawer.style.transform = 'translateX(100%)';
-      setTimeout(() => {
-        if (drawer.parentNode) {
-          drawer.parentNode.removeChild(drawer);
+    // Handle outside clicks
+    const handleOutsideClick = (event: MouseEvent) => {
+        const target = event.target as Node;
+        if (!dropdown.contains(target) && target !== guideButton) {
+            dropdown.animate([
+                { opacity: 1, transform: 'translateY(0)' },
+                { opacity: 0, transform: 'translateY(10px)' }
+            ], {
+                duration: 200,
+                easing: 'ease-in'
+            }).onfinish = () => {
+                if (document.body.contains(dropdown)) {
+                    document.body.removeChild(dropdown);
+                }
+            };
+            document.removeEventListener('click', handleOutsideClick);
         }
-      }, 300);
-    });
+    };
     
-    return drawer;
+    setTimeout(() => {
+        document.addEventListener('click', handleOutsideClick);
+    }, 0);
+    
+    return dropdown;
   }
 
   static createCursor(theme: ThemeOptions): HTMLElement {
