@@ -3,7 +3,7 @@ import { StateManager } from './manageState';
 import { CursorFlowUI } from './uiComponents';
 import { CursorFlowOptions, CursorFlowState } from './types';
 import { ElementUtils } from './elementUtils';
-import DirectHighlight from './directHighlight';
+import { DomAnalyzer } from './domAnalyzer';
 
 export default class CursorFlow {
     // Properties
@@ -657,7 +657,11 @@ export default class CursorFlow {
       }));
       
       console.time('Find target element');
-      this.currentTargetElement = ElementUtils.findElementFromInteraction(interaction);
+      // NEW: First initialize the DOM analyzer
+      await DomAnalyzer.initialize(500, this.options.debug); // 500px viewport expansion
+      
+      // NEW: Then use it to find the element
+      this.currentTargetElement = DomAnalyzer.findElement(interaction);
       console.timeEnd('Find target element');
       
       if (!this.currentTargetElement) {
@@ -690,66 +694,9 @@ export default class CursorFlow {
     }
   
     private async showVisualElements(targetElement: HTMLElement, interaction: any) {
-      console.time('HIGHLIGHT_PERFORMANCE');
-      console.log('[DIRECT-HIGHLIGHT-TEST] Using direct highlight approach for element:', {
-        tag: targetElement.tagName,
-        id: targetElement.id,
-        classes: targetElement.className
-      });
-      
-      // Create elements if not already created (still needed for cursor reference)
-      this.createVisualElements();
-      
-      // Ensure target element exists
-      if (!targetElement) {
-        console.error('[DIRECT-HIGHLIGHT-TEST] Target element not available');
-        console.timeEnd('HIGHLIGHT_PERFORMANCE');
-        return;
-      }
-      
-      try {
-        // NEW APPROACH: Use DirectHighlight
-        // Check if element is in view and scroll to it if needed
-        if (!ElementUtils.isElementInView(targetElement)) {
-          if (this.options.debug) {
-            console.log('[DIRECT-HIGHLIGHT-TEST] Target element not in view, scrolling to it');
-          }
-          await ElementUtils.scrollToElement(targetElement);
-        }
-        
-        // Get annotation text
-        let annotationText = '';
-        const currentStep = this.recording?.steps?.[this.state.currentStep];
-        if (currentStep) {
-          annotationText = currentStep.annotation || currentStep.popupText || 'Click here';
-        }
-        
-        // Use DirectHighlight to highlight element and show cursor/text
-        DirectHighlight.showVisualElements(
-          targetElement,
-          interaction,
-          this.cursorElement || undefined,
-          annotationText
-        );
-        
-        if (this.options.debug) {
-          console.log('[DIRECT-HIGHLIGHT-TEST] DirectHighlight approach applied successfully');
-        }
-      } catch (error) {
-        console.error('[DIRECT-HIGHLIGHT-TEST] Error applying direct highlight:', error);
-      }
-      
-      console.timeEnd('HIGHLIGHT_PERFORMANCE');
-      
-      /* 
-      // OLD APPROACH (COMMENTED OUT)
-      // Create elements if not already created
-      this.createVisualElements();
-      
-      // Ensure elements exist
-      if (!this.cursorElement || !this.highlightElement) {
-        console.error('Visual elements not available');
-        return;
+      // Create cursor element if not already created
+      if (!this.cursorElement) {
+        this.cursorElement = CursorFlowUI.createCursor(this.options.theme || {});
       }
       
       // Check if element is in view and scroll to it if needed
@@ -767,38 +714,36 @@ export default class CursorFlow {
         annotationText = currentStep.annotation || currentStep.popupText || 'Click here';
       }
       
-      // Use the new unified method to display all elements together
-      CursorFlowUI.showGuidanceElements(
-        targetElement,
-        this.cursorElement,
-        this.highlightElement,
-        annotationText,
-        this.options.theme || {}
+      // NEW: Use DomAnalyzer for highlighting
+      DomAnalyzer.clearHighlights();
+      DomAnalyzer.highlightElement(
+        targetElement, 
+        this.state.currentStep, 
+        this.options.theme?.highlightBorderColor || '#FF6B00'
       );
+      
+      // Continue using CursorFlowUI for cursor movement and text popup
+      CursorFlowUI.moveCursorToElement(
+        targetElement, 
+        this.cursorElement, 
+        interaction
+      );
+      
+      // Create and position text popup
+      const textPopup = CursorFlowUI.createTextPopup(annotationText, this.options.theme || {});
+      CursorFlowUI.positionTextPopupNearCursor(this.cursorElement, textPopup);
       
       if (this.options.debug) {
         console.log('Visual elements shown for element:', targetElement);
       }
-      */
+      
     }
   
     private hideVisualElements() {
-      console.log('[DIRECT-HIGHLIGHT-TEST] Cleaning up visual elements');
+      // NEW: Clear highlights using DomAnalyzer
+      DomAnalyzer.clearHighlights();
       
-      // NEW APPROACH: Use DirectHighlight cleanup
-      DirectHighlight.cleanup();
-      
-      // Reset references
-      this.cursorElement = null;
-      this.highlightElement = null;
-      
-      if (this.options.debug) {
-        console.log('[DIRECT-HIGHLIGHT-TEST] DirectHighlight cleanup complete');
-      }
-      
-      /*
-      // OLD APPROACH (COMMENTED OUT)
-      // Use our comprehensive cleanup method
+      // Continue to use CursorFlowUI.cleanupAllUI for other elements
       CursorFlowUI.cleanupAllUI();
       
       // Reset references
@@ -808,7 +753,7 @@ export default class CursorFlow {
       if (this.options.debug) {
         console.log('Visual elements hidden and cleaned up');
       }
-      */
+      
     }
   
     private setupNavigationDetection() {
