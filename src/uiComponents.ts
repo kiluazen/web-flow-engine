@@ -1,4 +1,9 @@
 import { ElementUtils } from './elementUtils';
+import arrowheadSvg from '../assets/arrowhead.svg';
+import hyphenboxSvg from '../assets/hyphenbox.svg';
+import crazehqSvg from '../assets/crazehq.svg';
+
+console.log('[SVG-DEBUG] Loaded hyphenbox SVG:', hyphenboxSvg.substring(0, 100) + '...');
 
 interface EnhancedHTMLElement extends HTMLElement {
   [key: string]: any; // Allow any string property
@@ -40,24 +45,33 @@ export class CursorFlowUI {
   private static highlightScrollHandler: EventListener | null = null;
 
   static createStartButton(text: string, color: string, onClick: () => void): HTMLElement {
+    console.log('[BUTTON-DEBUG] Creating start button with text:', text);
     const button = document.createElement('button');
     button.className = 'hyphen-start-button';
     
-    // Create modern pointer icon layout with cursor icon
+    // Create modern layout with cursor icon using the crazehq SVG
+    console.log('[BUTTON-DEBUG] Using crazehq SVG:', crazehqSvg.substring(0, 50) + '...');
     button.innerHTML = `
         <div class="hyphen-button-content" style="display: flex; align-items: center; gap: 8px;">
             <div class="hyphen-icon" style="display: flex; align-items: center;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" 
-                    style="color: #1a1a1a; min-width: 16px;">
-                    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" 
-                          fill="currentColor" 
-                          stroke="currentColor" 
-                          stroke-width="2"/>
-                </svg>
+                ${crazehqSvg}
             </div>
             <span class="hyphen-text" style="white-space: nowrap;">${text}</span>
         </div>
     `;
+    
+    // Adjust the SVG size in the button
+    const svg = button.querySelector('svg');
+    if (svg) {
+        console.log('[BUTTON-DEBUG] Adjusting SVG size');
+        svg.style.width = '24px';
+        svg.style.height = '24px';
+        svg.style.minWidth = '24px';
+        svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        svg.setAttribute('viewBox', '0 0 120 120');
+    } else {
+        console.warn('[BUTTON-DEBUG] SVG element not found in button');
+    }
     
     // Modern styling with adjusted padding for icon
     button.style.cssText = `
@@ -275,6 +289,8 @@ export class CursorFlowUI {
         z-index: 10000;
         overflow: hidden;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
     `;
     
     // Add header with modern design
@@ -295,6 +311,7 @@ export class CursorFlowUI {
         max-height: 320px;
         overflow-y: auto;
         padding: 8px 0;
+        flex: 1;
     `;
     
     if (!guides || guides.length === 0) {
@@ -354,6 +371,68 @@ export class CursorFlowUI {
     }
     
     dropdown.appendChild(content);
+
+    // Add footer with "powered by" and logo
+    console.log('[FOOTER-DEBUG] Creating footer with hyphenbox SVG');
+    const footer = document.createElement('div');
+    footer.style.cssText = `
+        padding: 12px 20px;
+        border-top: 1px solid #f0f0f0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        color: #666;
+        font-size: 12px;
+        background: #fafafa;
+        line-height: 1;
+    `;
+    
+    // First create the elements separately
+    const poweredByText = document.createElement('span');
+    poweredByText.textContent = 'powered by';
+    poweredByText.style.cssText = `
+        opacity: 0.7;
+        display: flex;
+        align-items: center;
+        height: 18px;
+    `;
+    
+    const logoContainer = document.createElement('div');
+    logoContainer.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 18px;
+        width: 55px;
+        position: relative;
+        transform: translateY(1px);
+    `;
+    
+    // Set the SVG directly
+    logoContainer.innerHTML = hyphenboxSvg;
+    
+    // Add elements to footer
+    footer.appendChild(poweredByText);
+    footer.appendChild(logoContainer);
+    
+    // Adjust the SVG
+    const svg = logoContainer.querySelector('svg');
+    if (svg) {
+        console.log('[FOOTER-DEBUG] Adjusting SVG properties');
+        svg.style.cssText = `
+            width: 100%;
+            height: 100%;
+            opacity: 0.7;
+            display: block;
+        `;
+        svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        svg.setAttribute('viewBox', '0 0 3163 849');
+    } else {
+        console.warn('[FOOTER-DEBUG] SVG element not found in container');
+    }
+
+    dropdown.appendChild(footer);
     document.body.appendChild(dropdown);
 
     // Add smooth entrance animation
@@ -395,8 +474,8 @@ export class CursorFlowUI {
     const cursor = document.createElement('div');
     cursor.className = 'hyphen-cursor';
     
-    // Load the SVG cursor
-    cursor.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="32px" height="32px"><path fill="#a1d3a2" d="M34 71.613L34 16 73 55.135 56.429 58.428 65.805 81.376 57.282 84.949 47.906 62.001z"/><path fill="#1f212b" d="M61.25 79.99c-.197 0-.384-.117-.463-.311l-6.944-17c-.104-.256.019-.548.273-.652.258-.104.548.018.652.273l6.944 17c.104.256-.019.548-.273.652C61.377 79.979 61.313 79.99 61.25 79.99zM53.5 61.02c-.197 0-.384-.117-.463-.311l-.406-.994c-.104-.256.019-.548.273-.652.256-.105.548.018.652.273l.406.994c.104.256-.019.548-.273.652C53.627 61.008 53.563 61.02 53.5 61.02zM52.257 57.977c-.197 0-.384-.117-.463-.311l-.677-1.656c-.057-.139-.048-.295.022-.427.071-.131.196-.224.343-.253l6.955-1.379c.273-.055.534.122.588.393.054.271-.122.534-.393.588l-6.36 1.261.447 1.095c.104.256-.019.548-.273.652C52.384 57.965 52.32 57.977 52.257 57.977zM61.455 54.362c-.233 0-.442-.165-.489-.403-.054-.271.122-.533.394-.587l3.537-.7L53.146 40.879c-.194-.195-.194-.512.002-.707.195-.193.512-.195.707.002l12.41 12.454c.13.13.178.322.124.498-.054.177-.2.31-.382.345l-4.454.882C61.521 54.359 61.487 54.362 61.455 54.362zM37.5 59c-.276 0-.5-.224-.5-.5V24.47c0-.202.122-.385.309-.462.186-.076.402-.035.545.109l13.978 14.027c.194.195.194.512-.002.707-.195.193-.512.195-.707-.002L38 25.68V58.5C38 58.776 37.776 59 37.5 59z"/><g><path fill="#1f212b" d="M57.281,85.949c-0.13,0-0.261-0.025-0.383-0.076c-0.247-0.103-0.442-0.299-0.543-0.546l-8.905-21.796l-12.882,8.904c-0.307,0.213-0.704,0.235-1.033,0.063C33.206,72.326,33,71.985,33,71.613V16c0-0.404,0.244-0.77,0.618-0.924c0.373-0.157,0.804-0.069,1.09,0.218l39,39.135c0.261,0.262,0.356,0.645,0.249,0.997s-0.4,0.618-0.762,0.689l-15.382,3.058l8.917,21.825c0.207,0.508-0.033,1.088-0.539,1.3l-8.523,3.573C57.544,85.923,57.413,85.949,57.281,85.949z M47.906,61.001c0.096,0,0.191,0.014,0.285,0.041c0.291,0.087,0.526,0.3,0.641,0.581l8.994,22.014l6.679-2.8l-9.001-22.03c-0.113-0.276-0.097-0.589,0.045-0.852s0.393-0.449,0.686-0.507l14.74-2.931L35,18.42v51.286l12.337-8.527C47.506,61.062,47.705,61.001,47.906,61.001z"/></g></svg>`;
+    // Load the SVG cursor from external file
+    cursor.innerHTML = arrowheadSvg;
     
     // Set basic styles for cursor
     cursor.style.position = 'absolute';
@@ -406,12 +485,12 @@ export class CursorFlowUI {
     
     // Apply theme if provided
     if (theme?.cursorColor) {
-      const paths = cursor.querySelectorAll('path');
-      paths.forEach(path => {
-        if (path.getAttribute('fill') === '#a1d3a2') {
-          path.setAttribute('fill', theme.cursorColor || '#a1d3a2');
-        }
-      });
+        const paths = cursor.querySelectorAll('path');
+        paths.forEach(path => {
+            if (path.getAttribute('fill') === '#FF6B00') {
+                path.setAttribute('fill', theme.cursorColor || '#FF6B00');
+            }
+        });
     }
     
     return cursor;
@@ -437,21 +516,25 @@ export class CursorFlowUI {
   static createTextPopup(text: string, theme: ThemeOptions): HTMLElement {
     const popup = document.createElement('div');
     popup.className = 'hyphen-text-popup';
-    
-    // Simplified styles - just what's needed
-    popup.style.position = 'absolute';
-    popup.style.zIndex = '10000';
-    popup.style.backgroundColor = '#ffffff';
-    popup.style.color = '#333333';
-    popup.style.padding = '8px 12px';
-    popup.style.borderRadius = '4px';
-    popup.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
-    popup.style.fontSize = '14px';
-    popup.style.maxWidth = '300px';
-    popup.style.whiteSpace = 'nowrap'; // Keep short text on one line
-    
-    // Set text directly - no nested divs
     popup.textContent = text;
+    
+    // Basic styling
+    popup.style.position = 'fixed';
+    popup.style.zIndex = '9998';
+    popup.style.backgroundColor = '#ffffff';
+    popup.style.border = '1px solid #e0e0e0';
+    popup.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)';
+    popup.style.borderRadius = '4px';
+    popup.style.padding = '8px 12px';
+    popup.style.fontSize = '14px';
+    popup.style.lineHeight = '1.4';
+    popup.style.color = '#333333';
+    popup.style.minWidth = '150px';      // Minimum width to prevent too narrow wrapping
+    popup.style.maxWidth = '300px';      // Maximum width for very long content
+    popup.style.width = 'max-content';   // Let content determine width up to maxWidth
+    popup.style.whiteSpace = 'normal';   // Allow wrapping
+    popup.style.wordWrap = 'break-word'; // Break long words if needed
+    popup.style.wordBreak = 'normal';    // Use normal word breaking rules
     
     return popup;
   }
@@ -459,32 +542,57 @@ export class CursorFlowUI {
   static moveCursorToElement(element: HTMLElement, cursor: HTMLElement | null, interaction: any): void {
     if (!cursor || !element) return;
     
+    // Add a unique debug log to identify when this method is called
+    console.log('[CURSOR-DEBUG] Using moveCursorToElement method - simplified version');
+    
     // First, remove any existing cursor wrapper
     const existingWrapper = document.querySelector('.hyphen-cursor-wrapper');
     if (existingWrapper && existingWrapper.parentNode) {
       existingWrapper.parentNode.removeChild(existingWrapper);
     }
     
+    // Make sure cursor is visible and properly styled
+    if (cursor) {
+      // Reset any previous styles that might affect visibility
+      cursor.style.opacity = '1';
+      cursor.style.visibility = 'visible';
+      cursor.style.display = 'block';
+      cursor.style.transform = 'none';
+      cursor.style.zIndex = '9999';
+    }
+    
     // Create a wrapper element that will be positioned relative to the target element
     const wrapper = document.createElement('div') as EnhancedHTMLElement;
     wrapper.className = 'hyphen-cursor-wrapper';
+    wrapper.id = 'cursor-wrapper'; // Add ID for easier reference
     wrapper.style.position = 'absolute';
-    wrapper.style.top = '0';
-    wrapper.style.left = '0';
     wrapper.style.pointerEvents = 'none';
     wrapper.style.zIndex = '9999';
+    wrapper.style.top = '0';
+    wrapper.style.left = '0';
+    wrapper.style.width = '100px';
+    wrapper.style.height = '100px';
     
     // Add the cursor to the wrapper
     wrapper.appendChild(cursor);
     
-    // Position the cursor relative to the target
+    // Add smooth sliding animation to the cursor
+    cursor.style.transition = 'all 0.5s ease';
     cursor.style.position = 'absolute';
-    cursor.style.left = '50%';
-    cursor.style.top = '50%';
-    cursor.style.transform = 'translate(-5px, -5px)';
+    
+    // Use simple positioning - bottom right of element
+    cursor.style.right = '-24px';
+    cursor.style.bottom = '-24px';
     
     // Add the wrapper to the document
     document.body.appendChild(wrapper);
+    
+    // Log cursor position for debugging
+    console.log('[CURSOR-DEBUG] Cursor positioned at:', {
+      right: cursor.style.right,
+      bottom: cursor.style.bottom,
+      element: element.outerHTML.substring(0, 100)
+    });
     
     // Create a MutationObserver to watch for changes to the element
     const observer = new MutationObserver(() => {
@@ -501,19 +609,29 @@ export class CursorFlowUI {
     // Store the observer on the wrapper for later cleanup
     wrapper['observer'] = observer;
     
-    // Function to update the wrapper position
+    // Function to update the wrapper position with smooth animation
     const updatePosition = () => {
       const rect = element.getBoundingClientRect();
       const scrollX = window.scrollX || window.pageXOffset;
       const scrollY = window.scrollY || window.pageYOffset;
       
+      // Add transition to wrapper for smooth sliding
+      wrapper.style.transition = 'transform 0.5s ease';
       wrapper.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
       wrapper.style.width = `${rect.width}px`;
       wrapper.style.height = `${rect.height}px`;
+      
+      console.log('[CURSOR-DEBUG] Updated wrapper position:', {
+        transform: wrapper.style.transform,
+        width: wrapper.style.width,
+        height: wrapper.style.height,
+        cursorVisible: window.getComputedStyle(cursor).display !== 'none'
+      });
     };
     
-    // Initial position update
+    // Update position immediately and then after a short delay to ensure rendering
     updatePosition();
+    setTimeout(updatePosition, 100);
     
     // Update position on scroll and resize
     const handler = () => updatePosition();
@@ -528,32 +646,89 @@ export class CursorFlowUI {
   static positionTextPopupNearCursor(cursor: HTMLElement, popup: HTMLElement): void {
     if (!cursor || !popup) return;
     
-    // Add to DOM if not already there
-    if (!popup.parentElement) {
-      document.body.appendChild(popup);
+    console.log('[TEXT-DEBUG] Positioning text popup near cursor');
+    
+    // Get the cursor wrapper
+    const wrapper = document.getElementById('cursor-wrapper');
+    if (!wrapper) {
+      console.error('[TEXT-DEBUG] Cursor wrapper not found');
+      return;
     }
     
-    // Get cursor position
-    const cursorRect = cursor.getBoundingClientRect();
+    // Add popup to the wrapper for relative positioning
+    wrapper.appendChild(popup);
     
-    // Position popup at the cursor's tip
-    popup.style.left = `${cursorRect.right - 8}px`; // Adjust for cursor tip
-    popup.style.top = `${cursorRect.bottom - 8}px`; // Adjust for cursor tip
+    // Store original text for streaming effect
+    const originalText = popup.textContent || '';
+    popup.textContent = '';
+    
+    // Style the popup
+    popup.style.position = 'absolute';
+    popup.style.left = '100%'; // Position at the right edge of wrapper
+    popup.style.top = '100%';  // Position at the bottom edge of wrapper
+    popup.style.marginLeft = '5px'; // Small gap between cursor and popup
+    popup.style.zIndex = '9998';
+    popup.style.backgroundColor = '#ffffff';
+    popup.style.border = '1px solid #e0e0e0';
+    popup.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)';
+    popup.style.borderRadius = '4px';
+    popup.style.padding = '8px 12px';
+    popup.style.minWidth = '150px';      // Minimum width to prevent too narrow wrapping
+    popup.style.maxWidth = '300px';      // Maximum width for very long content
+    popup.style.width = 'max-content';   // Let content determine width up to maxWidth
+    popup.style.whiteSpace = 'normal';   // Allow wrapping
+    popup.style.wordWrap = 'break-word'; // Break long words if needed
+    popup.style.wordBreak = 'normal';    // Use normal word breaking rules
+    popup.style.opacity = '0';           // Start invisible
+    popup.style.transition = 'opacity 0.3s ease'; // Smooth fade in
     
     // Viewport boundary checks
-    const popupRect = popup.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
+    const checkBoundaries = () => {
+      const popupRect = popup.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      
+      // Reset positions first
+      popup.style.left = '100%';
+      popup.style.top = '100%';
+      popup.style.transform = 'none';
+      
+      // Check right edge
+      if (popupRect.right > viewportWidth) {
+        popup.style.left = 'auto';
+        popup.style.right = '100%';
+        popup.style.marginLeft = '0';
+        popup.style.marginRight = '5px';
+      }
+      
+      // Check bottom edge
+      if (popupRect.bottom > viewportHeight) {
+        popup.style.top = 'auto';
+        popup.style.bottom = '100%';
+      }
+    };
     
-    // Adjust horizontal position if off-screen
-    if (popupRect.right > viewportWidth) {
-      popup.style.left = `${cursorRect.left - popupRect.width - 5}px`;
-    }
+    // Streaming text effect
+    let charIndex = 0;
+    const textLength = originalText.length;
     
-    // Adjust vertical position if off-screen
-    if (popupRect.bottom > viewportHeight) {
-      popup.style.top = `${cursorRect.top - popupRect.height - 5}px`;
-    }
+    const streamText = () => {
+      if (charIndex < textLength) {
+        popup.textContent = originalText.substring(0, charIndex + 1);
+        charIndex++;
+        setTimeout(streamText, 30);
+        checkBoundaries(); // Check boundaries after each character
+      }
+    };
+    
+    // Start the sequence:
+    // 1. Wait for cursor animation
+    setTimeout(() => {
+      // 2. Make popup visible
+      popup.style.opacity = '1';
+      // 3. Start streaming text
+      streamText();
+    }, 500);
   }
 
   static showNotification(options: NotificationOptions): HTMLElement {
@@ -1110,7 +1285,11 @@ export class CursorFlowUI {
     console.log('All UI elements cleaned up');
   }
 
+  /*
   static showGuidanceElements(element: HTMLElement, cursor: HTMLElement, highlight: HTMLElement, text: string, theme: ThemeOptions): void {
+    // Add a unique debug log to identify when this method is called
+    console.log('[CURSOR-DEBUG] Using showGuidanceElements method - places cursor at BOTTOM-RIGHT of element');
+    
     // Get or create the container (reuse if possible)
     let container = document.querySelector('.hyphen-guidance-container') as EnhancedHTMLElement;
     let shouldUpdatePositionOnly = false;
@@ -1275,6 +1454,7 @@ export class CursorFlowUI {
     // Initial position update
     updatePosition();
   }
+  */
 
   static showRedirectNotification(options: RedirectNotificationOptions): HTMLElement {
     // Create buttons array with redirect button
@@ -1407,6 +1587,126 @@ export class CursorFlowUI {
     }
     
     return inputElement;
+  }
+
+  // Add a new method to show thinking indicator
+  static showThinkingIndicator(button: HTMLElement): HTMLElement {
+    console.log('[THINKING-DEBUG] Showing thinking indicator');
+    
+    // Create a container for the thinking indicator
+    const container = document.createElement('div');
+    container.className = 'hyphen-thinking-indicator';
+    container.style.cssText = `
+      position: fixed;
+      z-index: 9999;
+      pointer-events: none;
+    `;
+    
+    // Create a cursor element
+    const cursor = this.createCursor({});
+    cursor.style.cssText = `
+      display: block;
+      position: absolute;
+      bottom: 5px;
+      left: 5px;
+      animation: hyphen-pulse 1.5s infinite;
+    `;
+    
+    // Create text bubble
+    const bubble = document.createElement('div');
+    bubble.style.cssText = `
+      position: absolute;
+      background: #ffffff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #333;
+      bottom: 10px;
+      left: 45px;
+      white-space: nowrap;
+    `;
+    
+    // Add loading dots animation to the text
+    bubble.innerHTML = `
+      Thinking<span class="hyphen-loading-dots"><span>.</span><span>.</span><span>.</span></span>
+    `;
+    
+    // Add animation styles
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes hyphen-pulse {
+        0% { opacity: 0.6; transform: scale(0.95); }
+        50% { opacity: 1; transform: scale(1); }
+        100% { opacity: 0.6; transform: scale(0.95); }
+      }
+      
+      .hyphen-loading-dots span {
+        animation: hyphen-dots 1.5s infinite;
+        animation-fill-mode: both;
+        opacity: 0;
+      }
+      
+      .hyphen-loading-dots span:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      
+      .hyphen-loading-dots span:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+      
+      @keyframes hyphen-dots {
+        0% { opacity: 0; }
+        25% { opacity: 1; }
+        50% { opacity: 1; }
+        75% { opacity: 0; }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    // Add elements to container
+    container.appendChild(cursor);
+    container.appendChild(bubble);
+    
+    // Position the container relative to the button
+    const buttonRect = button.getBoundingClientRect();
+    container.style.left = `${buttonRect.left - 10}px`;
+    container.style.top = `${buttonRect.top - 70}px`;
+    
+    // Add to document
+    document.body.appendChild(container);
+    
+    // Add entrance animation
+    container.animate([
+      { opacity: 0, transform: 'translateY(10px)' },
+      { opacity: 1, transform: 'translateY(0)' }
+    ], {
+      duration: 300,
+      easing: 'ease-out'
+    });
+    
+    return container;
+  }
+  
+  static hideThinkingIndicator(indicator: HTMLElement): void {
+    if (!indicator || !document.body.contains(indicator)) return;
+    
+    // Add exit animation
+    const animation = indicator.animate([
+      { opacity: 1, transform: 'translateY(0)' },
+      { opacity: 0, transform: 'translateY(10px)' }
+    ], {
+      duration: 300,
+      easing: 'ease-in'
+    });
+    
+    // Remove after animation completes
+    animation.onfinish = () => {
+      if (document.body.contains(indicator)) {
+        document.body.removeChild(indicator);
+      }
+    };
   }
 }
 

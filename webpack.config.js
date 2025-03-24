@@ -12,7 +12,14 @@ module.exports = {
         exclude: /node_modules/,
       },
       {
-        test: /\.(svg|png|jpg|gif)$/,
+        test: /\.svg$/,
+        type: 'asset/source',
+        generator: {
+          filename: 'assets/[name][ext]'
+        }
+      },
+      {
+        test: /\.(png|jpg|gif)$/,
         type: 'asset/resource',
       },
     ],
