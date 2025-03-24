@@ -42,22 +42,36 @@ export class CursorFlowUI {
   static createStartButton(text: string, color: string, onClick: () => void): HTMLElement {
     const button = document.createElement('button');
     button.className = 'hyphen-start-button';
-    button.textContent = text || 'Guides';
     
-    // Style the button
+    // Create modern button content with icon and text
+    button.innerHTML = `
+      <div class="hyphen-button-content">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M13 6L7 12L13 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="12" cy="12" r="11" stroke="currentColor" stroke-width="2"/>
+        </svg>
+        <span>Co-pilot</span>
+      </div>
+    `;
+    
+    // Modern styling
     button.style.position = 'fixed';
     button.style.bottom = '20px';
     button.style.right = '20px';
-    button.style.padding = '8px 16px';
-    button.style.backgroundColor = color || '#007bff';
-    button.style.color = '#ffffff';
+    button.style.padding = '12px 20px';
+    button.style.backgroundColor = '#ffffff';
+    button.style.color = '#1a1a1a';
     button.style.border = 'none';
-    button.style.borderRadius = '4px';
-    button.style.fontSize = '14px';
-    button.style.fontWeight = 'bold';
+    button.style.borderRadius = '16px';
+    button.style.fontSize = '15px';
+    button.style.fontWeight = '500';
     button.style.cursor = 'pointer';
-    button.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+    button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
     button.style.zIndex = '9999';
+    button.style.transition = 'all 0.2s ease';
+    button.style.display = 'flex';
+    button.style.alignItems = 'center';
+    button.style.gap = '8px';
     
     // Load saved position if available
     try {
@@ -78,13 +92,15 @@ export class CursorFlowUI {
       console.warn('Failed to load saved button position', e);
     }
     
-    // Add hover effect
+    // Enhanced hover effect
     button.addEventListener('mouseover', () => {
-      button.style.backgroundColor = color ? adjustColor(color, -20) : '#0069d9';
+      button.style.transform = 'translateY(-2px)';
+      button.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
     });
     
     button.addEventListener('mouseout', () => {
-      button.style.backgroundColor = color || '#007bff';
+      button.style.transform = 'translateY(0)';
+      button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
     });
     
     // Add click handler
@@ -248,103 +264,120 @@ export class CursorFlowUI {
   }
 
   static showGuidesDropdown(guides: any[], guideButton: HTMLElement, onSelect: (guideData: any) => void): HTMLElement {
-    // Create dropdown container
-    const dropdown = document.createElement('div');
-    dropdown.className = 'hyphen-dropdown';
+    // Create modern drawer container
+    const drawer = document.createElement('div');
+    drawer.className = 'hyphen-drawer';
     
-    // Style the dropdown
-    dropdown.style.position = 'absolute';
-    dropdown.style.bottom = '60px'; // Position above the button
-    dropdown.style.right = '20px';
-    dropdown.style.width = '300px';
-    dropdown.style.maxHeight = '400px';
-    dropdown.style.overflowY = 'auto';
-    dropdown.style.backgroundColor = '#ffffff';
-    dropdown.style.borderRadius = '4px';
-    dropdown.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
-    dropdown.style.zIndex = '10000';
-    dropdown.style.padding = '8px 0';
+    // Style the drawer
+    drawer.style.position = 'fixed';
+    drawer.style.right = '0';
+    drawer.style.top = '0';
+    drawer.style.width = '320px';
+    drawer.style.height = '100vh';
+    drawer.style.backgroundColor = '#ffffff';
+    drawer.style.boxShadow = '-4px 0 24px rgba(0,0,0,0.1)';
+    drawer.style.zIndex = '10000';
+    drawer.style.transition = 'transform 0.3s ease';
+    drawer.style.transform = 'translateX(100%)';
+    drawer.style.padding = '24px';
+    drawer.style.display = 'flex';
+    drawer.style.flexDirection = 'column';
     
-    // Add header
+    // Add drawer header
     const header = document.createElement('div');
-    header.textContent = 'Select a Guide';
-    header.style.padding = '8px 16px';
-    header.style.fontWeight = 'bold';
-    header.style.borderBottom = '1px solid #eee';
-    header.style.marginBottom = '8px';
-    dropdown.appendChild(header);
+    header.style.display = 'flex';
+    header.style.alignItems = 'center';
+    header.style.justifyContent = 'space-between';
+    header.style.marginBottom = '24px';
     
-    // If no guides available
-    if (!guides || guides.length === 0) {
-      const noGuides = document.createElement('div');
-      noGuides.textContent = 'No guides available';
-      noGuides.style.padding = '8px 16px';
-      noGuides.style.color = '#666';
-      noGuides.style.fontStyle = 'italic';
-      dropdown.appendChild(noGuides);
-    } else {
-      // Add each guide as a selectable item
-      guides.forEach(guide => {
-        const item = document.createElement('div');
-        item.className = 'hyphen-dropdown-item';
-        item.textContent = guide.name;
-        
-        // Style the item
-        item.style.padding = '10px 16px';
-        item.style.cursor = 'pointer';
-        item.style.transition = 'background-color 0.2s';
-        
-        // Add hover effect
-        item.addEventListener('mouseover', () => {
-          item.style.backgroundColor = '#f0f0f0';
-        });
-        
-        item.addEventListener('mouseout', () => {
-          item.style.backgroundColor = '';
-        });
-        
-        // Add click handler
-        item.addEventListener('click', (event) => {
-          // Prevent the click from bubbling up to document
-          event.stopPropagation();
-          
-          // Call the select handler
-          onSelect(guide);
-          
-          // Check if dropdown is still in the DOM before removing
-          if (document.body.contains(dropdown)) {
-            document.body.removeChild(dropdown);
-          }
-          
-          // Clean up the event listener
-          document.removeEventListener('click', handleOutsideClick);
-        });
-        
-        dropdown.appendChild(item);
+    const title = document.createElement('h2');
+    title.textContent = 'Available Guides';
+    title.style.margin = '0';
+    title.style.fontSize = '20px';
+    title.style.fontWeight = '600';
+    
+    const closeButton = document.createElement('button');
+    closeButton.innerHTML = '&times;';
+    closeButton.style.background = 'none';
+    closeButton.style.border = 'none';
+    closeButton.style.fontSize = '24px';
+    closeButton.style.cursor = 'pointer';
+    closeButton.style.padding = '4px';
+    closeButton.style.color = '#666';
+    
+    header.appendChild(title);
+    header.appendChild(closeButton);
+    drawer.appendChild(header);
+    
+    // Add guides list
+    const guidesList = document.createElement('div');
+    guidesList.style.display = 'flex';
+    guidesList.style.flexDirection = 'column';
+    guidesList.style.gap = '12px';
+    guidesList.style.overflowY = 'auto';
+    
+    guides.forEach(guide => {
+      const item = document.createElement('div');
+      item.className = 'hyphen-guide-item';
+      
+      item.innerHTML = `
+        <div class="guide-content">
+          <div class="guide-title">${guide.name}</div>
+          ${guide.description ? `<div class="guide-description">${guide.description}</div>` : ''}
+        </div>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      `;
+      
+      // Style guide item
+      item.style.padding = '16px';
+      item.style.backgroundColor = '#f8f9fa';
+      item.style.borderRadius = '12px';
+      item.style.cursor = 'pointer';
+      item.style.transition = 'all 0.2s ease';
+      item.style.display = 'flex';
+      item.style.alignItems = 'center';
+      item.style.justifyContent = 'space-between';
+      
+      // Add hover effect
+      item.addEventListener('mouseover', () => {
+        item.style.backgroundColor = '#f0f1f2';
+        item.style.transform = 'translateX(-4px)';
       });
-    }
+      
+      item.addEventListener('mouseout', () => {
+        item.style.backgroundColor = '#f8f9fa';
+        item.style.transform = 'translateX(0)';
+      });
+      
+      item.addEventListener('click', () => {
+        onSelect(guide);
+        drawer.style.transform = 'translateX(100%)';
+      });
+      
+      guidesList.appendChild(item);
+    });
     
-    // Add the dropdown to the page
-    document.body.appendChild(dropdown);
+    drawer.appendChild(guidesList);
     
-    // Close dropdown when clicking outside
-    const handleOutsideClick = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (!dropdown.contains(target) && target !== guideButton) {
-        // Check if dropdown is still in the DOM before removing
-        if (document.body.contains(dropdown)) {
-          document.body.removeChild(dropdown);
+    // Add to DOM and animate in
+    document.body.appendChild(drawer);
+    requestAnimationFrame(() => {
+      drawer.style.transform = 'translateX(0)';
+    });
+    
+    // Handle close button
+    closeButton.addEventListener('click', () => {
+      drawer.style.transform = 'translateX(100%)';
+      setTimeout(() => {
+        if (drawer.parentNode) {
+          drawer.parentNode.removeChild(drawer);
         }
-        document.removeEventListener('click', handleOutsideClick);
-      }
-    };
+      }, 300);
+    });
     
-    // Use setTimeout to avoid immediate trigger
-    setTimeout(() => {
-      document.addEventListener('click', handleOutsideClick);
-    }, 0);
-    
-    return dropdown;
+    return drawer;
   }
 
   static createCursor(theme: ThemeOptions): HTMLElement {
