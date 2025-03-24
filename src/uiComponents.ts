@@ -283,7 +283,7 @@ export class CursorFlowUI {
         color: #1a1a1a;
         border-bottom: 1px solid #f0f0f0;
     `;
-    header.textContent = 'Select a Guide';
+    header.textContent = 'What can I show you?';
     dropdown.appendChild(header);
     
     // Create scrollable content area
