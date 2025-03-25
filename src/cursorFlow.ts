@@ -469,8 +469,16 @@ export default class CursorFlow {
         console.log('Stopping guide');
       }
       
-      // Remove visual elements
-      this.hideVisualElements();
+      // First clear DomAnalyzer highlights
+      try {
+        DomAnalyzer.clearHighlights();
+        console.log('[HIGHLIGHT-DEBUG] DomAnalyzer highlights cleared');
+      } catch (e) {
+        console.error('[HIGHLIGHT-DEBUG] Failed to clear DomAnalyzer highlights:', e);
+      }
+      
+      // Then remove visual elements - pass false to ensure cursor is also cleaned up
+      CursorFlowUI.cleanupAllUI(false);
       
       // Reset state
       this.state = {
@@ -491,6 +499,11 @@ export default class CursorFlow {
       
       // Update button state
       this.updateButtonState();
+      
+      // Reset all element references
+      this.cursorElement = null;
+      this.highlightElement = null;
+      this.currentTargetElement = null;
       
       if (this.options.debug) {
         console.log('Guide stopped, state reset');

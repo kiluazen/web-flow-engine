@@ -499,6 +499,7 @@ export class CursorFlowUI {
   static createHighlight(theme: ThemeOptions): HTMLElement {
     const highlight = document.createElement('div');
     highlight.className = 'hyphen-highlight';
+    highlight.id = 'hyphenbox-highlight';  // Updated ID
     
     // Set basic styles
     highlight.style.position = 'absolute';
@@ -516,6 +517,7 @@ export class CursorFlowUI {
   static createTextPopup(text: string, theme: ThemeOptions): HTMLElement {
     const popup = document.createElement('div');
     popup.className = 'hyphen-text-popup';
+    popup.id = 'hyphenbox-text-popup';  // Updated ID
     popup.textContent = text;
     
     // Basic styling
@@ -543,13 +545,13 @@ export class CursorFlowUI {
     if (!cursor) return;
     
     // Get or create cursor wrapper
-    let wrapper = document.querySelector('.hyphen-cursor-wrapper') as EnhancedHTMLElement;
+    let wrapper = document.getElementById('hyphenbox-cursor-wrapper') as EnhancedHTMLElement;
     
     if (!wrapper) {
       // Create new wrapper only if it doesn't exist
       wrapper = document.createElement('div') as EnhancedHTMLElement;
       wrapper.className = 'hyphen-cursor-wrapper';
-      wrapper.id = 'cursor-wrapper'; // Add ID for easier reference
+      wrapper.id = 'hyphenbox-cursor-wrapper';  // Updated ID
       wrapper.style.position = 'absolute';
       wrapper.style.pointerEvents = 'none';
       wrapper.style.zIndex = '9999';
@@ -630,7 +632,7 @@ export class CursorFlowUI {
     console.log('[TEXT-DEBUG] Positioning text popup near cursor');
     
     // Get the cursor wrapper
-    const wrapper = document.getElementById('cursor-wrapper');
+    const wrapper = document.getElementById('hyphenbox-cursor-wrapper');
     if (!wrapper) {
       console.error('[TEXT-DEBUG] Cursor wrapper not found');
       return;
@@ -926,9 +928,9 @@ export class CursorFlowUI {
     popup.style.animation = 'hyphen-popup-fade 5s forwards';
     
     // Add animation keyframes if they don't exist
-    if (!document.getElementById('hyphen-animations')) {
+    if (!document.getElementById('hyphenbox-animations')) {
       const style = document.createElement('style');
-      style.id = 'hyphen-animations';
+      style.id = 'hyphenbox-animations';
       style.textContent = `
         @keyframes hyphen-popup-fade {
           0% { opacity: 0; transform: translateY(5px); }
@@ -987,6 +989,20 @@ export class CursorFlowUI {
   static positionHighlightOnElement(element: HTMLElement, highlight: HTMLElement | null): void {
     if (!highlight || !element) return;
     
+    // Get or create highlight wrapper
+    let wrapper = document.getElementById('hyphenbox-highlight-wrapper') as EnhancedHTMLElement;
+    
+    if (!wrapper) {
+      wrapper = document.createElement('div') as EnhancedHTMLElement;
+      wrapper.className = 'hyphen-highlight-wrapper';
+      wrapper.id = 'hyphenbox-highlight-wrapper';  // Updated ID
+      wrapper.style.position = 'fixed';
+      wrapper.style.pointerEvents = 'none';
+      wrapper.style.zIndex = '9998';
+      wrapper.appendChild(highlight);
+      document.body.appendChild(wrapper);
+    }
+    
     // Check portal/modal context with enhanced logging
     const { activeModal } = this.detectAndLogPortals();
     const isInModal = activeModal ? activeModal.contains(element) : false;
@@ -1039,18 +1055,6 @@ export class CursorFlowUI {
       existingWrapper.parentNode.removeChild(existingWrapper);
       console.log('[HIGHLIGHT-POSITION] Removed existing highlight wrapper');
     }
-    
-    // Create a wrapper element that will be positioned relative to the target element
-    const wrapper = document.createElement('div') as EnhancedHTMLElement;
-    wrapper.className = 'hyphen-highlight-wrapper';
-    wrapper.style.position = 'absolute';
-    wrapper.style.top = '0';
-    wrapper.style.left = '0';
-    wrapper.style.pointerEvents = 'none';
-    wrapper.style.zIndex = '9998';
-    
-    // Add the highlight to the wrapper
-    wrapper.appendChild(highlight);
     
     // Position the highlight with a small padding
     highlight.style.position = 'absolute';
@@ -1282,10 +1286,12 @@ export class CursorFlowUI {
       document.body.removeChild(container);
     }
     
-    // Only clean up highlight wrappers
-    const highlightWrappers = document.querySelectorAll('.hyphen-highlight-wrapper');
-    highlightWrappers.forEach(wrapper => {
-      const enhancedWrapper = wrapper as EnhancedHTMLElement;
+    // Clean up both highlight mechanisms
+    
+    // 1. Clean up CursorFlowUI highlight wrapper by ID
+    const highlightWrapper = document.getElementById('hyphenbox-highlight-wrapper');
+    if (highlightWrapper) {
+      const enhancedWrapper = highlightWrapper as EnhancedHTMLElement;
       if (enhancedWrapper['observer']) {
         enhancedWrapper['observer'].disconnect();
       }
@@ -1299,24 +1305,28 @@ export class CursorFlowUI {
         window.removeEventListener('scroll', enhancedWrapper['scrollHandler']);
         window.removeEventListener('resize', enhancedWrapper['scrollHandler']);
       }
-      if (wrapper.parentNode) {
-        wrapper.parentNode.removeChild(wrapper);
-      }
-    });
+      highlightWrapper.parentNode?.removeChild(highlightWrapper);
+    }
     
-    // Clean up text popups
-    const textPopups = document.querySelectorAll('.hyphen-text-popup');
-    textPopups.forEach(popup => {
-      if (popup.parentNode) {
-        popup.parentNode.removeChild(popup);
-      }
-    });
+    // 2. Clean up DomAnalyzer highlight container
+    const domAnalyzerContainer = document.getElementById('hyphenbox-highlight-container');
+    if (domAnalyzerContainer) {
+      domAnalyzerContainer.parentNode?.removeChild(domAnalyzerContainer);
+    }
+    
+    // Clean up text popup by ID
+    const textPopup = document.getElementById('hyphenbox-text-popup');
+    if (textPopup && textPopup.parentNode) {
+      textPopup.parentNode.removeChild(textPopup);
+    }
     
     // Only clean up cursor if explicitly requested
     if (!keepCursor) {
-      const cursorWrappers = document.querySelectorAll('.hyphen-cursor-wrapper');
-      cursorWrappers.forEach(wrapper => {
-        const enhancedWrapper = wrapper as EnhancedHTMLElement;
+      // Find cursor wrapper by ID
+      const cursorWrapper = document.getElementById('hyphenbox-cursor-wrapper');
+      if (cursorWrapper) {
+        const enhancedWrapper = cursorWrapper as EnhancedHTMLElement;
+        // Clean up all event listeners and observers
         if (enhancedWrapper['observer']) {
           enhancedWrapper['observer'].disconnect();
         }
@@ -1330,10 +1340,9 @@ export class CursorFlowUI {
           window.removeEventListener('scroll', enhancedWrapper['scrollHandler']);
           window.removeEventListener('resize', enhancedWrapper['scrollHandler']);
         }
-        if (wrapper.parentNode) {
-          wrapper.parentNode.removeChild(wrapper);
-        }
-      });
+        // Remove the wrapper and cursor
+        cursorWrapper.parentNode?.removeChild(cursorWrapper);
+      }
     }
     
     // Clean up draggable elements' event handlers
@@ -1354,7 +1363,20 @@ export class CursorFlowUI {
       }
     });
     
-    console.log('UI elements cleaned up', keepCursor ? '(keeping cursor)' : '');
+    // Also clean up any elements that might have been directly highlighted
+    const highlightedElements = document.querySelectorAll('[data-highlighted-by-dom-analyzer="true"]');
+    highlightedElements.forEach(el => {
+      const element = el as HTMLElement;
+      // Restore original styles
+      element.style.outline = element.dataset.originalOutline || '';
+      element.style.backgroundColor = element.dataset.originalBackground || '';
+      // Remove our data attributes
+      delete element.dataset.originalOutline;
+      delete element.dataset.originalBackground;
+      delete element.dataset.highlightedByDomAnalyzer;
+    });
+    
+    console.log('UI elements cleaned up', keepCursor ? '(keeping cursor)' : '(including cursor)');
   }
 
   /*

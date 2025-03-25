@@ -4,7 +4,7 @@ import { ElementUtils } from './elementUtils';
 export class DomAnalyzer {
   private static domMap: any = null;
   private static domTree: any = null;
-  private static highlightContainerId = "hyphen-highlight-container";
+  private static highlightContainerId = "hyphenbox-highlight-container";
   
   // Add a new property to track fallback mode
   private static _usingFallback: boolean = false;
