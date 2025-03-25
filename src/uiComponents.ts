@@ -499,17 +499,20 @@ export class CursorFlowUI {
   static createHighlight(theme: ThemeOptions): HTMLElement {
     const highlight = document.createElement('div');
     highlight.className = 'hyphen-highlight';
-    highlight.id = 'hyphenbox-highlight';  // Updated ID
+    highlight.id = 'hyphenbox-highlight';
     
-    // Set basic styles
+    // Set styles for the highlight
     highlight.style.position = 'absolute';
-    highlight.style.boxSizing = 'border-box';
+    highlight.style.top = '0';
+    highlight.style.left = '0';
+    highlight.style.width = '100%';
+    highlight.style.height = '100%';
     highlight.style.pointerEvents = 'none';
-    highlight.style.zIndex = '9998';
-    highlight.style.border = `2px solid ${theme?.highlightBorderColor || '#FF6B00'}`;
-    highlight.style.backgroundColor = theme?.highlightColor || 'rgba(255, 107, 0, 0.1)';
+    highlight.style.zIndex = '1'; // Lower z-index since it's a child
+    highlight.style.border = `2px solid ${(theme?.highlightBorderColor) || '#FF6B00'}`;
+    highlight.style.backgroundColor = (theme?.highlightColor) || 'rgba(255, 107, 0, 0.1)';
     highlight.style.borderRadius = '3px';
-    highlight.style.transition = 'all 0.3s ease-in-out';
+    highlight.style.boxSizing = 'border-box';
     
     return highlight;
   }
@@ -989,279 +992,54 @@ export class CursorFlowUI {
   static positionHighlightOnElement(element: HTMLElement, highlight: HTMLElement | null): void {
     if (!highlight || !element) return;
     
-    // Get or create highlight wrapper
-    let wrapper = document.getElementById('hyphenbox-highlight-wrapper') as EnhancedHTMLElement;
-    
-    if (!wrapper) {
-      wrapper = document.createElement('div') as EnhancedHTMLElement;
-      wrapper.className = 'hyphen-highlight-wrapper';
-      wrapper.id = 'hyphenbox-highlight-wrapper';  // Updated ID
-      wrapper.style.position = 'fixed';
-      wrapper.style.pointerEvents = 'none';
-      wrapper.style.zIndex = '9998';
-      wrapper.appendChild(highlight);
-      document.body.appendChild(wrapper);
-    }
-    
-    // Check portal/modal context with enhanced logging
-    const { activeModal } = this.detectAndLogPortals();
-    const isInModal = activeModal ? activeModal.contains(element) : false;
-    
-    // NEW: Verify if element is in expanded navigation
-    const isInExpandedNav = element && element.closest ? element.closest('[data-expanded="true"]') !== null : false;
-    
-    // NEW: Log element ancestry for better debugging
-    let ancestryLog = [];
-    let parentNode = element.parentElement;
-    let depth = 0;
-    while (parentNode && depth < 5) {
-      ancestryLog.push({
-        depth,
-        tag: parentNode.tagName,
-        id: parentNode.id,
-        classes: parentNode.className,
-        hasSize: parentNode.getBoundingClientRect().width > 0 && parentNode.getBoundingClientRect().height > 0,
-        display: window.getComputedStyle(parentNode).display,
-        position: window.getComputedStyle(parentNode).position
-      });
-      parentNode = parentNode.parentElement;
-      depth++;
-    }
-    
-    console.log('[HIGHLIGHT-POSITION] Positioning info:', {
-      element: {
-        tag: element.tagName,
-        id: element.id,
-        classes: element.className,
-        inModal: isInModal,
-        inExpandedNav: isInExpandedNav,
-        offsetParent: element.offsetParent !== null
-      },
-      initialRect: element.getBoundingClientRect(),
-      computedStyle: {
-        display: window.getComputedStyle(element).display,
-        visibility: window.getComputedStyle(element).visibility,
-        position: window.getComputedStyle(element).position,
-        opacity: window.getComputedStyle(element).opacity,
-        zIndex: window.getComputedStyle(element).zIndex,
-        transform: window.getComputedStyle(element).transform
-      },
-      ancestry: ancestryLog
+    console.log('[HIGHLIGHT-POSITION] Starting highlight positioning for:', {
+        element: {
+            tag: element.tagName,
+            id: element.id,
+            classes: element.className
+        }
     });
-    
-    // First, remove any existing highlight wrapper
-    const existingWrapper = document.querySelector('.hyphen-highlight-wrapper');
-    if (existingWrapper && existingWrapper.parentNode) {
-      existingWrapper.parentNode.removeChild(existingWrapper);
-      console.log('[HIGHLIGHT-POSITION] Removed existing highlight wrapper');
+
+    // First, check if we need to handle overflow
+    const parentElement = element.parentElement;
+    if (!parentElement) {
+        console.log('[HIGHLIGHT-POSITION] No parent element found, attaching highlight directly');
+        element.appendChild(highlight);
+        return;
     }
-    
-    // Position the highlight with a small padding
-    highlight.style.position = 'absolute';
-    highlight.style.left = '-4px';  // 4px padding on left
-    highlight.style.top = '-4px';   // 4px padding on top
-    highlight.style.width = 'calc(100% + 8px)';  // Add 8px (4px on each side)
-    highlight.style.height = 'calc(100% + 8px)'; // Add 8px (4px on each side)
-    
-    // Initially hide the highlight until we can position it properly
-    wrapper.style.opacity = '0';
-    
-    // Add the wrapper to the document
-    document.body.appendChild(wrapper);
-    console.log('[HIGHLIGHT-POSITION] Created highlight wrapper');
-    
-    // Variables for position stabilization
-    let lastRect = { top: 0, left: 0, width: 0, height: 0 };
-    let stabilityCounter = 0;
-    let attemptCounter = 0;
-    // NEW: Increase attempts for navigation elements
-    const MAX_ATTEMPTS = isInExpandedNav ? 60 : (isInModal ? 50 : 30);
-    const CHECK_INTERVAL = isInExpandedNav ? 80 : (isInModal ? 100 : 50);
-    const INITIAL_DELAY = isInExpandedNav ? 400 : (isInModal ? 300 : 0);
-    
-    console.log(`[HIGHLIGHT-POSITION] Configuration: delay=${INITIAL_DELAY}ms, interval=${CHECK_INTERVAL}ms, maxAttempts=${MAX_ATTEMPTS}`);
-    
-    // Function to update the wrapper position
-    const updatePosition = () => {
-      attemptCounter++;
-      
-      const rect = element.getBoundingClientRect();
-      const styles = window.getComputedStyle(element);
-      
-      // Log positioning state for debugging
-      if (attemptCounter % 5 === 0 || attemptCounter <= 2) {
-        console.log(`[HIGHLIGHT-POSITION] Update #${attemptCounter}:`, {
-          rect,
-          display: styles.display,
-          visibility: styles.visibility,
-          opacity: styles.opacity,
-          stabilityCounter,
-          inViewport: rect.width > 0 && rect.height > 0 && 
-                     rect.top >= 0 && rect.left >= 0 &&
-                     rect.bottom <= window.innerHeight && rect.right <= window.innerWidth,
-          elementConnected: element.isConnected
-        });
-      }
-      
-      // NEW: Enhanced check for valid element size and visibility
-      const hasValidSize = rect.width > 0 && rect.height > 0;
-      const isInDocument = document.body.contains(element);
-      
-      // Only update if element has a valid position we can use
-      if (hasValidSize && isInDocument) {
-        const scrollX = window.scrollX || window.pageXOffset;
-        const scrollY = window.scrollY || window.pageYOffset;
+
+    const parentStyle = window.getComputedStyle(parentElement);
+    const hasOverflowHidden = parentStyle.overflow === 'hidden' || 
+                             parentStyle.overflowX === 'hidden' || 
+                             parentStyle.overflowY === 'hidden';
+
+    if (hasOverflowHidden) {
+        console.log('[HIGHLIGHT-POSITION] Detected overflow:hidden, creating wrapper');
         
-        const transformValue = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
-        wrapper.style.transform = transformValue;
-        wrapper.style.width = `${rect.width}px`;
-        wrapper.style.height = `${rect.height}px`;
+        // Create a wrapper that will contain both element and highlight
+        const wrapper = document.createElement('div');
+        wrapper.style.position = 'relative';
+        wrapper.style.width = '100%';
+        wrapper.style.height = '100%';
         
-        // Check if position has stabilized
-        const positionChanged = 
-          Math.abs(rect.top - lastRect.top) > 1 || 
-          Math.abs(rect.left - lastRect.left) > 1 ||
-          Math.abs(rect.width - lastRect.width) > 1 || 
-          Math.abs(rect.height - lastRect.height) > 1;
+        // Move the element into the wrapper
+        parentElement.insertBefore(wrapper, element);
+        wrapper.appendChild(element);
         
-        if (positionChanged) {
-          // Position still changing, reset counter
-          stabilityCounter = 0;
-          // Update last rect
-          lastRect = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
-          console.log('[HIGHLIGHT-POSITION] Position changed, reset stability counter');
-        } else {
-          // Position stable, increment counter
-          stabilityCounter++;
-          
-          // If position stable for several checks, show the highlight
-          if (stabilityCounter >= 3) {
-            wrapper.style.opacity = '1';
-            console.log('[HIGHLIGHT-POSITION] Position stabilized, showing highlight with transform: ' + transformValue);
-            
-            // If very stable, stop active checking
-            if (stabilityCounter >= 5 && wrapper['positionInterval']) {
-              clearInterval(wrapper['positionInterval']);
-              wrapper['positionInterval'] = null;
-              console.log('[HIGHLIGHT-POSITION] Stopped active position monitoring');
-            }
-          }
+        // Add the highlight as a sibling
+        wrapper.appendChild(highlight);
+    } else {
+        // Check if element has position static
+        const elementStyle = window.getComputedStyle(element);
+        if (elementStyle.position === 'static') {
+            element.style.position = 'relative';
         }
-      } else if (isInExpandedNav && attemptCounter < MAX_ATTEMPTS/2) {
-        // For nav elements that might be expanding, keep trying
-        console.log('[HIGHLIGHT-POSITION] Navigation element not yet ready, continuing to wait...');
-        if (attemptCounter % 10 === 0) {
-          // Periodically log additional details about the navigation element
-          console.log('[HIGHLIGHT-POSITION] Nav element details:', {
-            hasSize: hasValidSize,
-            isConnected: element.isConnected,
-            rect: element.getBoundingClientRect(),
-            styles: {
-              display: window.getComputedStyle(element).display,
-              visibility: window.getComputedStyle(element).visibility,
-              opacity: window.getComputedStyle(element).opacity
-            }
-          });
-        }
-      } else {
-        console.log(`[HIGHLIGHT-POSITION] Element invalid: hasSize=${hasValidSize}, inDoc=${isInDocument}, attempt=${attemptCounter}`);
         
-        // NEW: Try to find nearest visible parent to position on instead
-        if (isInDocument && !hasValidSize && element.parentElement) {
-          let parent = element.parentElement;
-          let foundVisibleParent = false;
-          let parentSearchDepth = 0;
-          
-          // Walk up the tree looking for a visible parent
-          while (parent && parent !== document.body && !foundVisibleParent && parentSearchDepth < 10) {
-            parentSearchDepth++;
-            const parentRect = parent.getBoundingClientRect();
-            if (parentRect.width > 0 && parentRect.height > 0) {
-              console.log('[HIGHLIGHT-POSITION] Found visible parent at depth ' + parentSearchDepth, {
-                tag: parent.tagName,
-                id: parent.id,
-                classes: parent.className,
-                rect: parentRect,
-                styles: {
-                  display: window.getComputedStyle(parent).display,
-                  position: window.getComputedStyle(parent).position
-                }
-              });
-              
-              const scrollX = window.scrollX || window.pageXOffset;
-              const scrollY = window.scrollY || window.pageYOffset;
-              
-              const transformValue = `translate(${parentRect.left + scrollX}px, ${parentRect.top + scrollY}px)`;
-              wrapper.style.transform = transformValue;
-              wrapper.style.width = `${parentRect.width}px`;
-              wrapper.style.height = `${parentRect.height}px`;
-              wrapper.style.opacity = '1';
-              
-              console.log('[HIGHLIGHT-POSITION] Positioned on parent with transform: ' + transformValue);
-              foundVisibleParent = true;
-              break;
-            }
-            const nextParent = parent.parentElement;
-            if (!nextParent) {
-              console.log('[HIGHLIGHT-POSITION] No more parents to check');
-              break;
-            }
-            parent = nextParent;
-          }
-          
-          if (!foundVisibleParent) {
-            console.log('[HIGHLIGHT-POSITION] No visible parent found after checking ' + parentSearchDepth + ' ancestors');
-          }
-        }
-      }
-      
-      // Stop after max attempts to prevent infinite loops
-      if (attemptCounter >= MAX_ATTEMPTS) {
-        if (wrapper['positionInterval']) {
-          clearInterval(wrapper['positionInterval']);
-          wrapper['positionInterval'] = null;
-          console.log('[HIGHLIGHT-POSITION] Max attempts reached, stopping monitoring');
-          
-          // Force highlight to show if we've reached max attempts
-          wrapper.style.opacity = '1';
-          console.log('[HIGHLIGHT-POSITION] Forcing highlight to show after max attempts');
-          
-          // Log final state for diagnosis
-          console.log('[HIGHLIGHT-POSITION] Final element state:', {
-            element: {
-              tag: element.tagName,
-              id: element.id,
-              connected: element.isConnected,
-              rect: element.getBoundingClientRect()
-            },
-            highlight: {
-              opacity: wrapper.style.opacity,
-              transform: wrapper.style.transform,
-              width: wrapper.style.width,
-              height: wrapper.style.height
-            }
-          });
-        }
-      }
-    };
-    
-    // Use setTimeout to add a delay before starting position monitoring
-    setTimeout(() => {
-      console.log(`[HIGHLIGHT-POSITION] Starting position monitoring with ${
-        isInExpandedNav ? 'navigation' : (isInModal ? 'modal' : 'standard')
-      } settings`);
-      
-      // Start actively monitoring position changes
-      const positionInterval = setInterval(updatePosition, CHECK_INTERVAL);
-      
-      // Store interval for cleanup
-      wrapper['positionInterval'] = positionInterval;
-      
-      // Initial position update
-      updatePosition();
-    }, INITIAL_DELAY);
-    
-    // Continue with your existing observer and event handler code...
+        // Add highlight directly to the element
+        element.appendChild(highlight);
+    }
+
+    console.log('[HIGHLIGHT-POSITION] Highlight positioned successfully');
   }
 
   // Add a new method to properly clean up all UI components
@@ -1286,9 +1064,7 @@ export class CursorFlowUI {
       document.body.removeChild(container);
     }
     
-    // Clean up both highlight mechanisms
-    
-    // 1. Clean up CursorFlowUI highlight wrapper by ID
+    // Clean up highlight wrapper
     const highlightWrapper = document.getElementById('hyphenbox-highlight-wrapper');
     if (highlightWrapper) {
       const enhancedWrapper = highlightWrapper as EnhancedHTMLElement;
@@ -1306,12 +1082,6 @@ export class CursorFlowUI {
         window.removeEventListener('resize', enhancedWrapper['scrollHandler']);
       }
       highlightWrapper.parentNode?.removeChild(highlightWrapper);
-    }
-    
-    // 2. Clean up DomAnalyzer highlight container
-    const domAnalyzerContainer = document.getElementById('hyphenbox-highlight-container');
-    if (domAnalyzerContainer) {
-      domAnalyzerContainer.parentNode?.removeChild(domAnalyzerContainer);
     }
     
     // Clean up text popup by ID
@@ -1363,192 +1133,8 @@ export class CursorFlowUI {
       }
     });
     
-    // Also clean up any elements that might have been directly highlighted
-    const highlightedElements = document.querySelectorAll('[data-highlighted-by-dom-analyzer="true"]');
-    highlightedElements.forEach(el => {
-      const element = el as HTMLElement;
-      // Restore original styles
-      element.style.outline = element.dataset.originalOutline || '';
-      element.style.backgroundColor = element.dataset.originalBackground || '';
-      // Remove our data attributes
-      delete element.dataset.originalOutline;
-      delete element.dataset.originalBackground;
-      delete element.dataset.highlightedByDomAnalyzer;
-    });
-    
     console.log('UI elements cleaned up', keepCursor ? '(keeping cursor)' : '(including cursor)');
   }
-
-  /*
-  static showGuidanceElements(element: HTMLElement, cursor: HTMLElement, highlight: HTMLElement, text: string, theme: ThemeOptions): void {
-    // Add a unique debug log to identify when this method is called
-    console.log('[CURSOR-DEBUG] Using showGuidanceElements method - places cursor at BOTTOM-RIGHT of element');
-    
-    // Get or create the container (reuse if possible)
-    let container = document.querySelector('.hyphen-guidance-container') as EnhancedHTMLElement;
-    let shouldUpdatePositionOnly = false;
-    
-    // If container exists, we'll reuse it instead of recreating
-    if (container) {
-      // Clear previous observers gracefully
-      if (container['observer']) {
-        container['observer'].disconnect();
-      }
-      shouldUpdatePositionOnly = true;
-    } else {
-      // Create new container
-      container = document.createElement('div') as EnhancedHTMLElement;
-      container.className = 'hyphen-guidance-container';
-      container.style.position = 'absolute';
-      container.style.top = '0';
-      container.style.left = '0';
-      container.style.pointerEvents = 'none';
-      container.style.zIndex = '9998';
-      
-      // Add container to document once
-      document.body.appendChild(container);
-      
-      // Add the highlight (once) with padding
-      container.appendChild(highlight);
-      highlight.style.position = 'absolute';
-      highlight.style.left = '-4px';
-      highlight.style.top = '-4px';
-      highlight.style.width = 'calc(100% + 8px)';
-      highlight.style.height = 'calc(100% + 8px)';
-      
-      // Position cursor at bottom right edge of highlighted element
-      container.appendChild(cursor);
-      cursor.style.position = 'absolute';
-      cursor.style.right = '-24px';
-      cursor.style.bottom = '-24px';
-      cursor.style.transform = 'none';
-    }
-    
-    // Only update text content if popup exists
-    const existingPopup = container.querySelector('.hyphen-text-popup');
-    let popup: HTMLElement;
-    
-    if (existingPopup) {
-      popup = existingPopup as HTMLElement;
-      // Just update text directly
-      popup.textContent = text;
-    } else {
-      // Create new popup
-      popup = this.createTextPopup(text, theme);
-      container.appendChild(popup);
-      popup.style.position = 'absolute';
-    }
-    
-    // Use requestAnimationFrame for smoother position updates
-    const updatePosition = () => {
-      requestAnimationFrame(() => {
-        const rect = element.getBoundingClientRect();
-        const scrollX = window.scrollX || window.pageXOffset;
-        const scrollY = window.scrollY || window.pageYOffset;
-        
-        container.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
-        container.style.width = `${rect.width}px`;
-        container.style.height = `${rect.height}px`;
-        
-        // Position cursor at bottom right
-        if (cursor) {
-          cursor.style.right = '-24px';
-          cursor.style.bottom = '-24px';
-        }
-        
-        // Position textbox directly at cursor tip
-        if (popup) {
-          // Get cursor position within container
-          const cursorRect = cursor.getBoundingClientRect();
-          const containerRect = container.getBoundingClientRect();
-          
-          // The cursor SVG tip is approximately at these offsets from its top-left
-          const cursorTipX = 24;  // Approximate X offset to cursor tip
-          const cursorTipY = 16;  // Approximate Y offset to cursor tip
-          
-          // Position popup absolutely from container
-          popup.style.position = 'absolute';
-          popup.style.right = 'auto';
-          popup.style.bottom = 'auto';
-          popup.style.left = `calc(100% + ${cursorTipX}px)`;
-          popup.style.top = `calc(100% - ${cursorTipY}px)`;
-          
-          // SIMPLIFIED: Just make the box wide and handle text properly
-          popup.style.width = '150px';           // Fixed wider width
-          popup.style.maxWidth = '500px';        // Match the width
-          popup.style.whiteSpace = 'normal';     // Allow wrapping
-          popup.style.wordWrap = 'break-word';   // Handle long words
-          
-          // No conditional width adjustment based on text length
-          // This gives consistent wider box behavior
-          
-          // Viewport boundary checks (after positioning and sizing)
-          setTimeout(() => {
-            const popupRect = popup.getBoundingClientRect();
-            const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-            
-            // If off right edge
-            if (popupRect.right > viewportWidth) {
-              popup.style.left = 'auto';
-              popup.style.right = `calc(100% + 10px)`;
-            }
-            
-            // If off bottom
-            if (popupRect.bottom > viewportHeight) {
-              popup.style.top = 'auto'; 
-              popup.style.bottom = `calc(100% + 10px)`;
-            }
-          }, 0);
-        }
-      });
-    };
-    
-    // Set up scroll/resize event listeners efficiently (only once)
-    if (!shouldUpdatePositionOnly) {
-      // Remove old handlers if they exist
-      if (container['scrollHandler']) {
-        window.removeEventListener('scroll', container['scrollHandler']);
-        window.removeEventListener('resize', container['resizeHandler']);
-      }
-      
-      // Throttled event handler
-      const throttled = (() => {
-        let lastCall = 0;
-        return function() {
-          const now = Date.now();
-          if (now - lastCall >= 16) { // ~60fps
-            lastCall = now;
-            updatePosition();
-          }
-        };
-      })();
-      
-      window.addEventListener('scroll', throttled, { passive: true });
-      window.addEventListener('resize', throttled, { passive: true });
-      container['scrollHandler'] = throttled;
-      container['resizeHandler'] = throttled;
-    }
-    
-    // Create a lighter MutationObserver
-    const observer = new MutationObserver(() => {
-      updatePosition();
-    });
-    
-    // Watch only position-affecting attributes
-    observer.observe(element, {
-      attributes: true,
-      attributeFilter: ['style', 'class'],
-      childList: false
-    });
-    
-    // Store the observer
-    container['observer'] = observer;
-    
-    // Initial position update
-    updatePosition();
-  }
-  */
 
   static showRedirectNotification(options: RedirectNotificationOptions): HTMLElement {
     // Create buttons array with redirect button

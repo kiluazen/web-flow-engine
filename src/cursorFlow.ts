@@ -21,7 +21,6 @@ export default class CursorFlow {
     private startButton: HTMLElement | null = null;
     private sortedSteps: any[] = [];
     private isHandlingNavigation = false;
-    private usingDirectHighlight = true;
     private thinkingIndicator: HTMLElement | null = null;
   
     constructor(options: CursorFlowOptions) {
@@ -50,10 +49,6 @@ export default class CursorFlow {
         completedSteps: [],
         timestamp: Date.now()
       };
-      
-      // Log approach being used - but clarify what's actually happening
-      console.log('[HIGHLIGHT-DEBUG] Initializing CursorFlow - using CursorFlowUI for highlighting (not DirectHighlight despite the flag)');
-      console.log('[HIGHLIGHT-DEBUG] usingDirectHighlight flag is set to:', this.usingDirectHighlight, 'but DirectHighlight class is not imported or used');
       
       if (this.options.debug) {
         console.log('CursorFlow initialized with options:', this.options);
@@ -428,34 +423,10 @@ export default class CursorFlow {
     }
   
     private positionHighlightOnElement(element: HTMLElement, highlight: HTMLElement | null) {
-      // Use DirectHighlight approach if flag is set
-      if (this.usingDirectHighlight) {
-        console.log('[DIRECT-HIGHLIGHT-TEST] Using DirectHighlight for positioning instead of manual positioning');
-        
-        // DirectHighlight handles this through its own methods
-        // We don't need to do manual positioning
-        // This method might be called directly in some cases, so we log it
-        return;
-      }
-      
-      /* 
-      // OLD APPROACH (COMMENTED OUT)
       if (!highlight || !element) return;
       
-      // Get element position
-      const rect = element.getBoundingClientRect();
-      
-      // Add to DOM if not already there
-      if (!highlight.parentElement) {
-        document.body.appendChild(highlight);
-      }
-      
-      // Position and size the highlight to match the element
-      highlight.style.left = `${rect.left}px`;
-      highlight.style.top = `${rect.top}px`;
-      highlight.style.width = `${rect.width}px`;
-      highlight.style.height = `${rect.height}px`;
-      */
+      // Delegate positioning to CursorFlowUI
+      CursorFlowUI.positionHighlightOnElement(element, highlight);
     }
   
     stop() {
@@ -469,15 +440,7 @@ export default class CursorFlow {
         console.log('Stopping guide');
       }
       
-      // First clear DomAnalyzer highlights
-      try {
-        DomAnalyzer.clearHighlights();
-        console.log('[HIGHLIGHT-DEBUG] DomAnalyzer highlights cleared');
-      } catch (e) {
-        console.error('[HIGHLIGHT-DEBUG] Failed to clear DomAnalyzer highlights:', e);
-      }
-      
-      // Then remove visual elements - pass false to ensure cursor is also cleaned up
+      // Clean up all UI elements - pass false to ensure cursor is also cleaned up
       CursorFlowUI.cleanupAllUI(false);
       
       // Reset state
@@ -757,8 +720,6 @@ export default class CursorFlow {
       this.debugLog('Found target element:', this.currentTargetElement.outerHTML);
       
       console.time('Show visual elements');
-      // This log is very misleading - update it
-      console.log('[HIGHLIGHT-DEBUG] Despite the name, we are NOT using DirectHighlight.ts - we are using CursorFlowUI and DomAnalyzer');
       await this.showVisualElements(this.currentTargetElement, interaction);
       console.timeEnd('Show visual elements');
       
@@ -772,14 +733,13 @@ export default class CursorFlow {
     private async showVisualElements(targetElement: HTMLElement, interaction: any) {
       // Create cursor element if not already created
       if (!this.cursorElement) {
-        console.log('[HIGHLIGHT-DEBUG] Creating cursor element using CursorFlowUI.createCursor()');
         this.cursorElement = CursorFlowUI.createCursor(this.options.theme || {});
       }
       
       // Check if element is in view and scroll to it if needed
       if (!ElementUtils.isElementInView(targetElement)) {
         if (this.options.debug) {
-          console.log('[HIGHLIGHT-DEBUG] Target element is not in view, scrolling to it');
+          console.log('Target element is not in view, scrolling to it');
         }
         await ElementUtils.scrollToElement(targetElement);
       }
@@ -791,61 +751,36 @@ export default class CursorFlow {
         annotationText = currentStep.annotation || currentStep.popupText || 'Click here';
       }
       
-      console.log('[HIGHLIGHT-DEBUG] About to try highlighting with DomAnalyzer');
-      try {
-        // These DomAnalyzer calls are likely failing silently
-        DomAnalyzer.clearHighlights();
-        DomAnalyzer.highlightElement(
-          targetElement, 
-          this.state.currentStep, 
-          this.options.theme?.highlightBorderColor || '#FF6B00'
-        );
-        console.log('[HIGHLIGHT-DEBUG] DomAnalyzer highlighting completed successfully');
-      } catch (e) {
-        console.error('[HIGHLIGHT-DEBUG] DomAnalyzer failed:', e);
+      // Create and position highlight using CursorFlowUI
+      if (!this.highlightElement) {
+        this.highlightElement = CursorFlowUI.createHighlight(this.options.theme || {});
       }
       
-      // Add detailed cursor positioning flow log
-      console.log('[CURSOR-FLOW-DEBUG] About to position cursor - this will call CursorFlowUI.moveCursorToElement(), NOT showGuidanceElements()');
+      // Position the highlight on the element
+      CursorFlowUI.positionHighlightOnElement(targetElement, this.highlightElement);
       
-      console.log('[HIGHLIGHT-DEBUG] Using CursorFlowUI for cursor positioning');
-      // Continue using CursorFlowUI for cursor movement and text popup
+      // Position cursor
       CursorFlowUI.moveCursorToElement(
         targetElement, 
         this.cursorElement, 
         interaction
       );
       
-      console.log('[HIGHLIGHT-DEBUG] Creating and positioning text popup with CursorFlowUI');
       // Create and position text popup
       const textPopup = CursorFlowUI.createTextPopup(annotationText, this.options.theme || {});
       CursorFlowUI.positionTextPopupNearCursor(this.cursorElement, textPopup);
       
       if (this.options.debug) {
-        console.log('[HIGHLIGHT-DEBUG] Visual elements shown for element:', targetElement);
+        console.log('Visual elements shown for element:', targetElement);
       }
     }
   
     private hideVisualElements() {
-      console.log('[HIGHLIGHT-DEBUG] Starting to hide visual elements');
-      
-      // Try to use DomAnalyzer for clearing highlights - likely failing silently
-      try {
-        console.log('[HIGHLIGHT-DEBUG] Attempting to clear DomAnalyzer highlights');
-        DomAnalyzer.clearHighlights();
-        console.log('[HIGHLIGHT-DEBUG] DomAnalyzer.clearHighlights() succeeded');
-      } catch (e) {
-        console.error('[HIGHLIGHT-DEBUG] DomAnalyzer.clearHighlights() failed:', e);
-      }
-      
-      console.log('[HIGHLIGHT-DEBUG] Using CursorFlowUI.cleanupAllUI() to clean up UI elements');
       // Clean up UI elements but keep the cursor
       CursorFlowUI.cleanupAllUI(true);
       
       // Reset references
       this.highlightElement = null;
-      
-      console.log('[HIGHLIGHT-DEBUG] Visual elements hidden and references cleared');
       
       if (this.options.debug) {
         console.log('Visual elements hidden and cleaned up');
@@ -1216,8 +1151,6 @@ export default class CursorFlow {
       this.currentInteractionType = null;
     }
     private handleInteractionError() {
-      console.log('[DIRECT-HIGHLIGHT-TEST] Handling interaction error using DirectHighlight approach');
-      
       CursorFlowUI.showErrorNotification(
         'We couldn\'t find the element for this step.',
         {

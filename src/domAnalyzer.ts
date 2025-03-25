@@ -4,9 +4,6 @@ import { ElementUtils } from './elementUtils';
 export class DomAnalyzer {
   private static domMap: any = null;
   private static domTree: any = null;
-  private static highlightContainerId = "hyphenbox-highlight-container";
-  
-  // Add a new property to track fallback mode
   private static _usingFallback: boolean = false;
   
   /**
@@ -17,14 +14,10 @@ export class DomAnalyzer {
       // Ensure script is loaded
       const scriptLoaded = await this.loadBuildDomTreeScript();
       if (!scriptLoaded) {
-        console.log('[HIGHLIGHT-DEBUG] Could not load build-dom-tree.js, using fallback method');
         // Set a flag to indicate we're in fallback mode
         this._usingFallback = true;
         return true; // Return success anyway so the app continues
       }
-      
-      // Clear any existing highlights
-      this.clearHighlights();
       
       // Build DOM tree with automatic highlighting disabled (we'll handle it)
       const result = window.buildDomTree({
@@ -34,13 +27,12 @@ export class DomAnalyzer {
         debugMode
       });
       
-      this.domTree = result;
-      this.domMap = result.map;
+      this.domMap = result;
+      this.domTree = result.map;
       
-      console.log('[HIGHLIGHT-DEBUG] DOM tree built successfully, found nodes:', Object.keys(this.domMap).length);
       return true;
     } catch (error) {
-      console.error('[HIGHLIGHT-DEBUG] Failed to initialize DOM analyzer:', error);
+      console.error('Failed to initialize DOM analyzer:', error);
       // Set flag to indicate we're in fallback mode
       this._usingFallback = true;
       return true; // Return success anyway so the app continues
@@ -71,147 +63,19 @@ export class DomAnalyzer {
   }
   
   /**
-   * Highlight an element with the enhanced highlighter
+   * No-op: Highlight method - kept for API compatibility but does nothing now
    */
   static highlightElement(element: HTMLElement, index: number, color: string = "#FF6B00"): void {
-    if (!element) return;
-    
-    if (this._usingFallback) {
-      // Fallback direct CSS highlighting
-      console.log('[HIGHLIGHT-DEBUG] Using fallback highlighting method');
-      // Add a simple outline directly to the element
-      const originalOutline = element.style.outline;
-      const originalBackground = element.style.backgroundColor;
-      
-      element.style.outline = `2px solid ${color}`;
-      element.style.backgroundColor = `${color}1A`; // Add 10% opacity background
-      
-      // Store original styles for later cleanup
-      element.dataset.originalOutline = originalOutline;
-      element.dataset.originalBackground = originalBackground;
-      element.dataset.highlightedByDomAnalyzer = 'true';
-      
-      return;
-    }
-    
-    // Standard version continues below
-    // Create or get highlight container
-    let container = document.getElementById(this.highlightContainerId);
-    if (!container) {
-      container = document.createElement("div");
-      container.id = this.highlightContainerId;
-      container.style.position = "fixed";
-      container.style.pointerEvents = "none";
-      container.style.top = "0";
-      container.style.left = "0";
-      container.style.width = "100%";
-      container.style.height = "100%";
-      container.style.zIndex = "2147483647";
-      document.body.appendChild(container);
-    }
-    
-    // Get element position
-    const rect = element.getBoundingClientRect();
-    
-    // Generate highlight colors
-    const baseColor = color;
-    const backgroundColor = baseColor + "1A"; // 10% opacity
-    
-    // Create highlight overlay
-    const overlay = document.createElement("div");
-    overlay.className = `hyphen-highlight-${index}`;
-    overlay.style.position = "fixed";
-    overlay.style.border = `2px solid ${baseColor}`;
-    overlay.style.backgroundColor = backgroundColor;
-    overlay.style.pointerEvents = "none";
-    overlay.style.boxSizing = "border-box";
-    
-    // Set position and size
-    overlay.style.top = `${rect.top}px`;
-    overlay.style.left = `${rect.left}px`;
-    overlay.style.width = `${rect.width}px`;
-    overlay.style.height = `${rect.height}px`;
-    
-    // Create and position label
-    const label = document.createElement("div");
-    label.className = "hyphen-highlight-label";
-    label.style.position = "fixed";
-    label.style.background = baseColor;
-    label.style.color = "white";
-    label.style.padding = "1px 4px";
-    label.style.borderRadius = "4px";
-    label.style.fontSize = "12px";
-    
-    // Position label
-    const labelWidth = 20;
-    const labelHeight = 16;
-    let labelTop = rect.top + 2;
-    let labelLeft = rect.left + rect.width - labelWidth - 2;
-    
-    if (rect.width < labelWidth + 4 || rect.height < labelHeight + 4) {
-      labelTop = rect.top - labelHeight - 2;
-      labelLeft = rect.left + rect.width - labelWidth;
-    }
-    
-    label.style.top = `${labelTop}px`;
-    label.style.left = `${labelLeft}px`;
-    label.textContent = index.toString();
-    
-    // Add to container
-    container.appendChild(overlay);
-    container.appendChild(label);
-    
-    // Update positions on scroll and resize
-    const updatePositions = () => {
-      const newRect = element.getBoundingClientRect();
-      overlay.style.top = `${newRect.top}px`;
-      overlay.style.left = `${newRect.left}px`;
-      overlay.style.width = `${newRect.width}px`;
-      overlay.style.height = `${newRect.height}px`;
-      
-      let newLabelTop = newRect.top + 2;
-      let newLabelLeft = newRect.left + newRect.width - labelWidth - 2;
-      
-      if (newRect.width < labelWidth + 4 || newRect.height < labelHeight + 4) {
-        newLabelTop = newRect.top - labelHeight - 2;
-        newLabelLeft = newRect.left + newRect.width - labelWidth;
-      }
-      
-      label.style.top = `${newLabelTop}px`;
-      label.style.left = `${newLabelLeft}px`;
-    };
-    
-    window.addEventListener('scroll', updatePositions);
-    window.addEventListener('resize', updatePositions);
+    // This method intentionally left empty
+    // UI highlighting is now exclusively handled by CursorFlowUI
   }
   
   /**
-   * Clear all highlights
+   * No-op: Clear highlights method - kept for API compatibility but does nothing now
    */
   static clearHighlights(): void {
-    if (this._usingFallback) {
-      // Fallback cleanup method
-      console.log('[HIGHLIGHT-DEBUG] Using fallback cleanup method');
-      // Find all elements we've highlighted
-      const highlightedElements = document.querySelectorAll('[data-highlighted-by-dom-analyzer="true"]');
-      highlightedElements.forEach(el => {
-        const element = el as HTMLElement;
-        // Restore original styles
-        element.style.outline = element.dataset.originalOutline || '';
-        element.style.backgroundColor = element.dataset.originalBackground || '';
-        // Remove our data attributes
-        delete element.dataset.originalOutline;
-        delete element.dataset.originalBackground;
-        delete element.dataset.highlightedByDomAnalyzer;
-      });
-      return;
-    }
-    
-    // Standard version continues
-    const container = document.getElementById(this.highlightContainerId);
-    if (container) {
-      container.innerHTML = '';
-    }
+    // This method intentionally left empty
+    // UI highlighting is now exclusively handled by CursorFlowUI
   }
   
   /**
