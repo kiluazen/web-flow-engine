@@ -1,5 +1,6 @@
 import { ElementUtils } from './elementUtils';
-import arrowheadSvg from '../assets/arrowhead.svg';
+// import arrowheadSvg from '../assets/arrowhead.svg';
+import crazeArrow from '../assets/arrowhead.svg';
 import hyphenboxSvg from '../assets/hyphenbox.svg';
 import crazehqSvg from '../assets/crazehq.svg';
 
@@ -14,6 +15,7 @@ export interface ThemeOptions {
   highlightColor?: string;
   highlightBorderColor?: string;
   buttonColor?: string;
+  companyName?: string;
 }
 
 export interface NotificationOptions {
@@ -471,29 +473,63 @@ export class CursorFlowUI {
   }
 
   static createCursor(theme: ThemeOptions): HTMLElement {
+    const cursorWrapper = document.createElement('div');
+    cursorWrapper.className = 'hyphen-cursor-container';
+    cursorWrapper.style.cssText = `
+        position: absolute;
+        display: inline-flex;
+        align-items: center;
+        pointer-events: none;
+        z-index: 9999;
+        transform-origin: top left;
+    `;
+
+    // Create the cursor element
     const cursor = document.createElement('div');
     cursor.className = 'hyphen-cursor';
-    
-    // Load the SVG cursor from external file
-    cursor.innerHTML = arrowheadSvg;
-    
-    // Set basic styles for cursor
-    cursor.style.position = 'absolute';
-    cursor.style.zIndex = '9999';
-    cursor.style.pointerEvents = 'none'; // Ensures it doesn't interfere with clicks
-    cursor.style.transform = 'translate(-5px, -5px)'; // Adjust position so tip of cursor is at the target
-    
-    // Apply theme if provided
+    cursor.innerHTML = crazeArrow;
+    cursor.style.cssText = `
+        position: relative;
+        pointer-events: none;
+        display: flex;
+        align-items: center;
+        transform: translate(-1px, -1px);
+    `;
+
+    // Create the company label
+    const companyLabel = document.createElement('div');
+    companyLabel.className = 'hyphen-company-label';
+    companyLabel.textContent = theme.companyName || 'Craze';
+    const cursorColor = theme.cursorColor || '#FF6B00';
+    companyLabel.style.cssText = `
+        background-color: ${cursorColor};
+        color: white;
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 500;
+        margin-left: -2px;
+        white-space: nowrap;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transform: translateY(2px);
+    `;
+
+    // Apply theme color to cursor if provided
     if (theme?.cursorColor) {
         const paths = cursor.querySelectorAll('path');
         paths.forEach(path => {
             if (path.getAttribute('fill') === '#FF6B00') {
-                path.setAttribute('fill', theme.cursorColor || '#FF6B00');
+                path.setAttribute('fill', cursorColor);
             }
         });
     }
-    
-    return cursor;
+
+    // Add cursor and label to wrapper
+    cursorWrapper.appendChild(cursor);
+    cursorWrapper.appendChild(companyLabel);
+
+    return cursorWrapper;
   }
 
   static createHighlight(theme: ThemeOptions): HTMLElement {
@@ -505,10 +541,11 @@ export class CursorFlowUI {
     highlight.style.position = 'absolute';
     highlight.style.top = '0';
     highlight.style.left = '0';
-    highlight.style.width = '100%';
-    highlight.style.height = '100%';
+    highlight.style.width = 'calc(100% + 6px)';
+    highlight.style.height = 'calc(100% + 6px)';
+    highlight.style.transform = 'translate(-3px, -3px)';
     highlight.style.pointerEvents = 'none';
-    highlight.style.zIndex = '1'; // Lower z-index since it's a child
+    highlight.style.zIndex = '1';
     highlight.style.border = `2px solid ${(theme?.highlightBorderColor) || '#FF6B00'}`;
     highlight.style.backgroundColor = (theme?.highlightColor) || 'rgba(255, 107, 0, 0.1)';
     highlight.style.borderRadius = '3px';
@@ -551,45 +588,46 @@ export class CursorFlowUI {
     let wrapper = document.getElementById('hyphenbox-cursor-wrapper') as EnhancedHTMLElement;
     
     if (!wrapper) {
-      // Create new wrapper only if it doesn't exist
-      wrapper = document.createElement('div') as EnhancedHTMLElement;
-      wrapper.className = 'hyphen-cursor-wrapper';
-      wrapper.id = 'hyphenbox-cursor-wrapper';  // Updated ID
-      wrapper.style.position = 'absolute';
-      wrapper.style.pointerEvents = 'none';
-      wrapper.style.zIndex = '9999';
-      wrapper.style.top = '0';
-      wrapper.style.left = '0';
-      wrapper.style.width = '100px';
-      wrapper.style.height = '100px';
-      wrapper.appendChild(cursor);
-      document.body.appendChild(wrapper);
+        // Create new wrapper only if it doesn't exist
+        wrapper = document.createElement('div') as EnhancedHTMLElement;
+        wrapper.className = 'hyphen-cursor-wrapper';
+        wrapper.id = 'hyphenbox-cursor-wrapper';
+        wrapper.style.position = 'absolute';
+        wrapper.style.pointerEvents = 'none';
+        wrapper.style.zIndex = '9999';
+        wrapper.style.top = '0';
+        wrapper.style.left = '0';
+        wrapper.appendChild(cursor);
+        document.body.appendChild(wrapper);
     }
     
     // Add smooth transition for cursor movement
     cursor.style.transition = 'all 0.5s ease';
     cursor.style.position = 'absolute';
     
-    // Use simple positioning - bottom right of element
-    cursor.style.right = '-24px';
-    cursor.style.bottom = '-24px';
+    // Position cursor at bottom right of element
+    cursor.style.right = 'auto';
+    cursor.style.bottom = 'auto';
+    cursor.style.left = '100%';
+    cursor.style.top = '100%';
+    cursor.style.transform = 'translate(-8px, -8px)';
     
     // Log cursor position for debugging
     console.log('[CURSOR-DEBUG] Moving cursor to element:', {
-      element: element.outerHTML.substring(0, 100),
-      currentPosition: wrapper.style.transform
+        element: element.outerHTML.substring(0, 100),
+        currentPosition: wrapper.style.transform
     });
     
     // Create a MutationObserver to watch for changes to the element
     const observer = new MutationObserver(() => {
-      updatePosition();
+        updatePosition();
     });
     
     // Watch for changes to the element's attributes and children
     observer.observe(element, {
-      attributes: true,
-      childList: true,
-      subtree: true
+        attributes: true,
+        childList: true,
+        subtree: true
     });
     
     // Store the observer on the wrapper for later cleanup
@@ -597,22 +635,15 @@ export class CursorFlowUI {
     
     // Function to update the wrapper position with smooth animation
     const updatePosition = () => {
-      const rect = element.getBoundingClientRect();
-      const scrollX = window.scrollX || window.pageXOffset;
-      const scrollY = window.scrollY || window.pageYOffset;
-      
-      // Add transition to wrapper for smooth sliding
-      wrapper.style.transition = 'transform 0.5s ease';
-      wrapper.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
-      wrapper.style.width = `${rect.width}px`;
-      wrapper.style.height = `${rect.height}px`;
-      
-      console.log('[CURSOR-DEBUG] Updated wrapper position:', {
-        transform: wrapper.style.transform,
-        width: wrapper.style.width,
-        height: wrapper.style.height,
-        cursorVisible: window.getComputedStyle(cursor).display !== 'none'
-      });
+        const rect = element.getBoundingClientRect();
+        const scrollX = window.scrollX || window.pageXOffset;
+        const scrollY = window.scrollY || window.pageYOffset;
+        
+        // Add transition to wrapper for smooth sliding
+        wrapper.style.transition = 'transform 0.5s ease';
+        wrapper.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
+        wrapper.style.width = `${rect.width}px`;
+        wrapper.style.height = `${rect.height}px`;
     };
     
     // Update position immediately and then after a short delay to ensure rendering
@@ -641,119 +672,94 @@ export class CursorFlowUI {
       return;
     }
     
+    // Clean up any existing text popup before adding the new one
+    const existingPopup = document.getElementById('hyphenbox-text-popup');
+    if (existingPopup && existingPopup.parentNode) {
+      existingPopup.parentNode.removeChild(existingPopup);
+    }
+    
     // Add popup to the wrapper for relative positioning
     wrapper.appendChild(popup);
+    
+    // The cursor parameter is already the container with class 'hyphen-cursor-container'
+    const cursorContainer = cursor.classList.contains('hyphen-cursor-container') ? 
+      cursor : cursor.querySelector('.hyphen-cursor-container');
+
+    if (!cursorContainer) {
+      console.error('[TEXT-DEBUG] Cursor container not found');
+      return;
+    }
     
     // Store original text for streaming effect
     const originalText = popup.textContent || '';
     popup.textContent = '';
     
+    // Get dimensions
+    const containerRect = cursorContainer.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
     // Style the popup - start with transparent until positioned
-    popup.style.position = 'absolute';
-    popup.style.zIndex = '9998';
-    popup.style.backgroundColor = '#ffffff';
-    popup.style.border = '1px solid #e0e0e0';
-    popup.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)';
-    popup.style.borderRadius = '4px';
-    popup.style.padding = '8px 12px';
-    popup.style.minWidth = '150px';
-    popup.style.maxWidth = '300px';
-    popup.style.width = 'max-content';
-    popup.style.whiteSpace = 'normal';
-    popup.style.wordWrap = 'break-word';
-    popup.style.wordBreak = 'normal';
-    popup.style.opacity = '0';
-    popup.style.transition = 'opacity 0.3s ease';
+    popup.style.cssText = `
+        position: absolute;
+        z-index: 9998;
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        border-radius: 4px;
+        padding: 8px 12px;
+        min-width: 150px;
+        max-width: 300px;
+        width: max-content;
+        white-space: normal;
+        word-wrap: break-word;
+        word-break: normal;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        font-size: 14px;
+        line-height: 1.4;
+        color: #333333;
+    `;
     
-    // Set an initial position (will be checked later)
-    popup.style.left = '100%';
-    popup.style.top = '100%';
-    popup.style.marginLeft = '5px';
-    
-    // First pass: let the browser calculate natural width/height with max-content
-    const prelimPosition = () => {
-      // Get viewport dimensions
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      
-      // Get the element's natural size with max-content
+    // Position function that handles all four possible positions
+    const positionPopup = () => {
       const popupRect = popup.getBoundingClientRect();
-      
-      // Get cursor wrapper position
+      const containerRect = cursorContainer.getBoundingClientRect();
       const wrapperRect = wrapper.getBoundingClientRect();
       
-      // Available space in each direction
-      const spaceRight = viewportWidth - (wrapperRect.right + 5); // 5px margin
-      const spaceLeft = wrapperRect.left - 5;
-      const spaceBottom = viewportHeight - (wrapperRect.bottom + 5);
-      const spaceTop = wrapperRect.top - 5;
+      // Calculate position relative to the wrapper
+      const containerTop = containerRect.top - wrapperRect.top;
+      const containerLeft = containerRect.left - wrapperRect.left;
+      const containerRight = containerLeft + containerRect.width;
+      const containerBottom = containerTop + containerRect.height;
       
-      // Determine if we need to adjust width based on available space
-      if (popupRect.width > spaceRight) {
-        // Not enough space on right, adjust width OR change position
-        if (spaceRight >= 150) {
-          // At least minimum width available, just constrain to available space
-          popup.style.maxWidth = `${spaceRight - 10}px`; // 10px safety margin
-          popup.style.left = '100%';
-          popup.style.right = 'auto';
-          popup.style.marginLeft = '5px';
-          popup.style.marginRight = '0';
-        } else if (spaceLeft >= 150) {
-          // Try positioning on the left side
-          popup.style.maxWidth = `${spaceLeft - 10}px`; // 10px safety margin
-          popup.style.left = 'auto';
-          popup.style.right = '100%';
-          popup.style.marginLeft = '0';
-          popup.style.marginRight = '5px';
-        } else {
-          // Not enough space on either side, use available space in optimal direction
-          if (spaceRight >= spaceLeft) {
-            popup.style.maxWidth = `${spaceRight - 10}px`;
-            popup.style.left = '100%';
-            popup.style.right = 'auto';
-            popup.style.marginLeft = '5px';
-            popup.style.marginRight = '0';
-          } else {
-            popup.style.maxWidth = `${spaceLeft - 10}px`;
-            popup.style.left = 'auto';
-            popup.style.right = '100%';
-            popup.style.marginLeft = '0';
-            popup.style.marginRight = '5px';
-          }
-        }
+      // Calculate available space in each direction
+      const spaceRight = viewportWidth - (wrapperRect.left + containerRight);
+      const spaceBelow = viewportHeight - (wrapperRect.top + containerBottom);
+      
+      // Default position: bottom-right with padding
+      popup.style.left = `${containerRight}px`;
+      popup.style.top = `${containerBottom}px`;
+      popup.style.transform = 'translate(-1px, -1px)';
+      
+      // If not enough space, adjust position
+      if (spaceRight < popup.offsetWidth) {
+        // Not enough space right, position to left
+        popup.style.left = `${containerLeft}px`;
+        popup.style.transform = 'translate(-100%, 4px)';
+        popup.style.marginLeft = '-4px';
       }
-      
-      // Check vertical positioning - prioritize bottom positioning
-      if (popupRect.height > spaceBottom) {
-        // Not enough space at the bottom
-        if (spaceTop >= popupRect.height) {
-          // Position on top
-          popup.style.top = 'auto';
-          popup.style.bottom = '100%';
-        }
-        // Otherwise leave it at the bottom and accept overflow - better than
-        // potentially hiding the beginning of text if at the top
+
+      if (spaceBelow < popup.offsetHeight) {
+        // Not enough space below, position above
+        popup.style.top = `${containerTop}px`;
+        popup.style.transform = `translate(${spaceRight < popup.offsetWidth ? '-100%' : '4px'}, -100%)`;
+        popup.style.marginTop = '-4px';
       }
-      
-      console.log('[TEXT-DEBUG] Positioned popup with available space:', {
-        spaceRight,
-        spaceLeft,
-        spaceBottom,
-        spaceTop,
-        popupWidth: popupRect.width,
-        popupHeight: popupRect.height,
-        finalPosition: {
-          left: popup.style.left,
-          right: popup.style.right,
-          top: popup.style.top,
-          bottom: popup.style.bottom,
-          maxWidth: popup.style.maxWidth
-        }
-      });
     };
     
-    // Run preliminary positioning
-    prelimPosition();
+    // Initial positioning
+    setTimeout(positionPopup, 0);
     
     // Streaming text effect
     let charIndex = 0;
@@ -765,21 +771,18 @@ export class CursorFlowUI {
         charIndex++;
         setTimeout(streamText, 30);
         
-        // Check if we're at 25%, 50%, or 75% of the content
-        // and recheck boundary only at these points to prevent jittering
+        // Recheck position periodically as text streams in
         if (charIndex === Math.floor(textLength * 0.25) || 
             charIndex === Math.floor(textLength * 0.5) || 
             charIndex === Math.floor(textLength * 0.75)) {
-          prelimPosition();
+          positionPopup();
         }
       }
     };
     
     // Start the sequence after a short delay to ensure positioning
     setTimeout(() => {
-      // Make popup visible
       popup.style.opacity = '1';
-      // Start streaming text
       streamText();
     }, 500);
   }
@@ -1047,92 +1050,113 @@ export class CursorFlowUI {
     // Clean up the guidance container and its contents
     const container = document.querySelector('.hyphen-guidance-container') as EnhancedHTMLElement;
     if (container) {
-      // Clean up event listeners
-      if (container['observer']) {
-        container['observer'].disconnect();
-      }
-      if (container['parentObserver']) {
-        container['parentObserver'].disconnect();
-      }
-      if (container['positionInterval']) {
-        clearInterval(container['positionInterval']);
-      }
-      if (container['scrollHandler']) {
-        window.removeEventListener('scroll', container['scrollHandler']);
-        window.removeEventListener('resize', container['scrollHandler']);
-      }
-      document.body.removeChild(container);
+        // Clean up event listeners
+        if (container['observer']) {
+            container['observer'].disconnect();
+        }
+        if (container['parentObserver']) {
+            container['parentObserver'].disconnect();
+        }
+        if (container['positionInterval']) {
+            clearInterval(container['positionInterval']);
+        }
+        if (container['scrollHandler']) {
+            window.removeEventListener('scroll', container['scrollHandler']);
+            window.removeEventListener('resize', container['scrollHandler']);
+        }
+        document.body.removeChild(container);
     }
-    
-    // Clean up highlight wrapper
-    const highlightWrapper = document.getElementById('hyphenbox-highlight-wrapper');
-    if (highlightWrapper) {
-      const enhancedWrapper = highlightWrapper as EnhancedHTMLElement;
-      if (enhancedWrapper['observer']) {
-        enhancedWrapper['observer'].disconnect();
-      }
-      if (enhancedWrapper['parentObserver']) {
-        enhancedWrapper['parentObserver'].disconnect();
-      }
-      if (enhancedWrapper['positionInterval']) {
-        clearInterval(enhancedWrapper['positionInterval']);
-      }
-      if (enhancedWrapper['scrollHandler']) {
-        window.removeEventListener('scroll', enhancedWrapper['scrollHandler']);
-        window.removeEventListener('resize', enhancedWrapper['scrollHandler']);
-      }
-      highlightWrapper.parentNode?.removeChild(highlightWrapper);
-    }
-    
+
+    // Clean up all highlights by class name
+    const highlights = document.querySelectorAll('.hyphen-highlight');
+    highlights.forEach(highlight => {
+        try {
+            const parent = highlight.parentElement;
+            if (!parent) return;
+
+            // If highlight is in a wrapper, remove the wrapper
+            if (parent.style && parent.style.position === 'relative' && parent.children.length === 2) {
+                // This is likely our wrapper div, get the original element
+                const originalElement = parent.children[0];
+                const grandParent = parent.parentElement;
+                if (grandParent) {
+                    // Move original element back to its original position
+                    grandParent.insertBefore(originalElement, parent);
+                    // Remove the wrapper
+                    grandParent.removeChild(parent);
+                }
+            } else {
+                // Direct child of the target element
+                parent.removeChild(highlight);
+                // Reset position if we set it to relative
+                if (parent.style && parent.style.position === 'relative') {
+                    parent.style.removeProperty('position');
+                }
+            }
+        } catch (error) {
+            console.warn('Error cleaning up highlight:', error);
+        }
+    });
+
     // Clean up text popup by ID
     const textPopup = document.getElementById('hyphenbox-text-popup');
     if (textPopup && textPopup.parentNode) {
-      textPopup.parentNode.removeChild(textPopup);
+        textPopup.parentNode.removeChild(textPopup);
     }
-    
+
     // Only clean up cursor if explicitly requested
     if (!keepCursor) {
-      // Find cursor wrapper by ID
-      const cursorWrapper = document.getElementById('hyphenbox-cursor-wrapper');
-      if (cursorWrapper) {
-        const enhancedWrapper = cursorWrapper as EnhancedHTMLElement;
-        // Clean up all event listeners and observers
-        if (enhancedWrapper['observer']) {
-          enhancedWrapper['observer'].disconnect();
+        // Find cursor wrapper by ID
+        const cursorWrapper = document.getElementById('hyphenbox-cursor-wrapper');
+        if (cursorWrapper) {
+            try {
+                const enhancedWrapper = cursorWrapper as EnhancedHTMLElement;
+                // Clean up all event listeners and observers
+                if (enhancedWrapper['observer']) {
+                    enhancedWrapper['observer'].disconnect();
+                }
+                if (enhancedWrapper['parentObserver']) {
+                    enhancedWrapper['parentObserver'].disconnect();
+                }
+                if (enhancedWrapper['positionInterval']) {
+                    clearInterval(enhancedWrapper['positionInterval']);
+                }
+                if (enhancedWrapper['scrollHandler']) {
+                    window.removeEventListener('scroll', enhancedWrapper['scrollHandler']);
+                    window.removeEventListener('resize', enhancedWrapper['scrollHandler']);
+                }
+                // Remove the wrapper and cursor
+                if (cursorWrapper.parentNode) {
+                    cursorWrapper.parentNode.removeChild(cursorWrapper);
+                }
+            } catch (error) {
+                console.warn('Error cleaning up cursor:', error);
+            }
         }
-        if (enhancedWrapper['parentObserver']) {
-          enhancedWrapper['parentObserver'].disconnect();
-        }
-        if (enhancedWrapper['positionInterval']) {
-          clearInterval(enhancedWrapper['positionInterval']);
-        }
-        if (enhancedWrapper['scrollHandler']) {
-          window.removeEventListener('scroll', enhancedWrapper['scrollHandler']);
-          window.removeEventListener('resize', enhancedWrapper['scrollHandler']);
-        }
-        // Remove the wrapper and cursor
-        cursorWrapper.parentNode?.removeChild(cursorWrapper);
-      }
     }
-    
+
     // Clean up draggable elements' event handlers
     const draggables = document.querySelectorAll('.hyphen-draggable') as NodeListOf<EnhancedHTMLElement>;
     draggables.forEach(draggable => {
-      if (draggable['_hyphenDragHandlers']) {
-        document.removeEventListener('mousemove', draggable['_hyphenDragHandlers'].mouseMove);
-        document.removeEventListener('mouseup', draggable['_hyphenDragHandlers'].mouseUp);
-        delete draggable['_hyphenDragHandlers'];
-      }
+        try {
+            if (draggable['_hyphenDragHandlers']) {
+                document.removeEventListener('mousemove', draggable['_hyphenDragHandlers'].mouseMove);
+                document.removeEventListener('mouseup', draggable['_hyphenDragHandlers'].mouseUp);
+                delete draggable['_hyphenDragHandlers'];
+            }
+        } catch (error) {
+            console.warn('Error cleaning up draggable:', error);
+        }
     });
-    
-    // Remove any notifications
+
+    // Clean up any notifications
     const notifications = document.querySelectorAll('.hyphen-notification');
     notifications.forEach(notification => {
-      if (notification.parentNode) {
-        notification.parentNode.removeChild(notification);
-      }
+        if (notification.parentNode) {
+            notification.parentNode.removeChild(notification);
+        }
     });
-    
+
     console.log('UI elements cleaned up', keepCursor ? '(keeping cursor)' : '(including cursor)');
   }
 
