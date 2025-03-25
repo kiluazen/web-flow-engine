@@ -826,11 +826,10 @@ export default class CursorFlow {
       }
       
       console.log('[HIGHLIGHT-DEBUG] Using CursorFlowUI.cleanupAllUI() to clean up UI elements');
-      // Continue to use CursorFlowUI.cleanupAllUI for other elements
-      CursorFlowUI.cleanupAllUI();
+      // Clean up UI elements but keep the cursor
+      CursorFlowUI.cleanupAllUI(true);
       
       // Reset references
-      this.cursorElement = null;
       this.highlightElement = null;
       
       console.log('[HIGHLIGHT-DEBUG] Visual elements hidden and references cleared');
@@ -1306,8 +1305,8 @@ export default class CursorFlow {
     private async playNextStep() {
       if (!this.state.isPlaying) return false;
       
-      // Hide current visual elements first
-      this.hideVisualElements();
+      // Hide current visual elements first, but keep the cursor
+      CursorFlowUI.cleanupAllUI(true);
       
       // Remove existing listeners
       this.removeExistingListeners();

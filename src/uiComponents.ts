@@ -540,43 +540,28 @@ export class CursorFlowUI {
   }
 
   static moveCursorToElement(element: HTMLElement, cursor: HTMLElement | null, interaction: any): void {
-    if (!cursor || !element) return;
+    if (!cursor) return;
     
-    // Add a unique debug log to identify when this method is called
-    console.log('[CURSOR-DEBUG] Using moveCursorToElement method - simplified version');
+    // Get or create cursor wrapper
+    let wrapper = document.querySelector('.hyphen-cursor-wrapper') as EnhancedHTMLElement;
     
-    // First, remove any existing cursor wrapper
-    const existingWrapper = document.querySelector('.hyphen-cursor-wrapper');
-    if (existingWrapper && existingWrapper.parentNode) {
-      existingWrapper.parentNode.removeChild(existingWrapper);
+    if (!wrapper) {
+      // Create new wrapper only if it doesn't exist
+      wrapper = document.createElement('div') as EnhancedHTMLElement;
+      wrapper.className = 'hyphen-cursor-wrapper';
+      wrapper.id = 'cursor-wrapper'; // Add ID for easier reference
+      wrapper.style.position = 'absolute';
+      wrapper.style.pointerEvents = 'none';
+      wrapper.style.zIndex = '9999';
+      wrapper.style.top = '0';
+      wrapper.style.left = '0';
+      wrapper.style.width = '100px';
+      wrapper.style.height = '100px';
+      wrapper.appendChild(cursor);
+      document.body.appendChild(wrapper);
     }
     
-    // Make sure cursor is visible and properly styled
-    if (cursor) {
-      // Reset any previous styles that might affect visibility
-      cursor.style.opacity = '1';
-      cursor.style.visibility = 'visible';
-      cursor.style.display = 'block';
-      cursor.style.transform = 'none';
-      cursor.style.zIndex = '9999';
-    }
-    
-    // Create a wrapper element that will be positioned relative to the target element
-    const wrapper = document.createElement('div') as EnhancedHTMLElement;
-    wrapper.className = 'hyphen-cursor-wrapper';
-    wrapper.id = 'cursor-wrapper'; // Add ID for easier reference
-    wrapper.style.position = 'absolute';
-    wrapper.style.pointerEvents = 'none';
-    wrapper.style.zIndex = '9999';
-    wrapper.style.top = '0';
-    wrapper.style.left = '0';
-    wrapper.style.width = '100px';
-    wrapper.style.height = '100px';
-    
-    // Add the cursor to the wrapper
-    wrapper.appendChild(cursor);
-    
-    // Add smooth sliding animation to the cursor
+    // Add smooth transition for cursor movement
     cursor.style.transition = 'all 0.5s ease';
     cursor.style.position = 'absolute';
     
@@ -584,14 +569,10 @@ export class CursorFlowUI {
     cursor.style.right = '-24px';
     cursor.style.bottom = '-24px';
     
-    // Add the wrapper to the document
-    document.body.appendChild(wrapper);
-    
     // Log cursor position for debugging
-    console.log('[CURSOR-DEBUG] Cursor positioned at:', {
-      right: cursor.style.right,
-      bottom: cursor.style.bottom,
-      element: element.outerHTML.substring(0, 100)
+    console.log('[CURSOR-DEBUG] Moving cursor to element:', {
+      element: element.outerHTML.substring(0, 100),
+      currentPosition: wrapper.style.transform
     });
     
     // Create a MutationObserver to watch for changes to the element
@@ -1280,7 +1261,7 @@ export class CursorFlowUI {
   }
 
   // Add a new method to properly clean up all UI components
-  static cleanupAllUI(): void {
+  static cleanupAllUI(keepCursor: boolean = false): void {
     // Clean up the guidance container and its contents
     const container = document.querySelector('.hyphen-guidance-container') as EnhancedHTMLElement;
     if (container) {
@@ -1301,9 +1282,9 @@ export class CursorFlowUI {
       document.body.removeChild(container);
     }
     
-    // Also clean up any individual elements that might exist
-    const wrappers = document.querySelectorAll('.hyphen-cursor-wrapper, .hyphen-highlight-wrapper');
-    wrappers.forEach(wrapper => {
+    // Only clean up highlight wrappers
+    const highlightWrappers = document.querySelectorAll('.hyphen-highlight-wrapper');
+    highlightWrappers.forEach(wrapper => {
       const enhancedWrapper = wrapper as EnhancedHTMLElement;
       if (enhancedWrapper['observer']) {
         enhancedWrapper['observer'].disconnect();
@@ -1323,6 +1304,38 @@ export class CursorFlowUI {
       }
     });
     
+    // Clean up text popups
+    const textPopups = document.querySelectorAll('.hyphen-text-popup');
+    textPopups.forEach(popup => {
+      if (popup.parentNode) {
+        popup.parentNode.removeChild(popup);
+      }
+    });
+    
+    // Only clean up cursor if explicitly requested
+    if (!keepCursor) {
+      const cursorWrappers = document.querySelectorAll('.hyphen-cursor-wrapper');
+      cursorWrappers.forEach(wrapper => {
+        const enhancedWrapper = wrapper as EnhancedHTMLElement;
+        if (enhancedWrapper['observer']) {
+          enhancedWrapper['observer'].disconnect();
+        }
+        if (enhancedWrapper['parentObserver']) {
+          enhancedWrapper['parentObserver'].disconnect();
+        }
+        if (enhancedWrapper['positionInterval']) {
+          clearInterval(enhancedWrapper['positionInterval']);
+        }
+        if (enhancedWrapper['scrollHandler']) {
+          window.removeEventListener('scroll', enhancedWrapper['scrollHandler']);
+          window.removeEventListener('resize', enhancedWrapper['scrollHandler']);
+        }
+        if (wrapper.parentNode) {
+          wrapper.parentNode.removeChild(wrapper);
+        }
+      });
+    }
+    
     // Clean up draggable elements' event handlers
     const draggables = document.querySelectorAll('.hyphen-draggable') as NodeListOf<EnhancedHTMLElement>;
     draggables.forEach(draggable => {
@@ -1330,14 +1343,6 @@ export class CursorFlowUI {
         document.removeEventListener('mousemove', draggable['_hyphenDragHandlers'].mouseMove);
         document.removeEventListener('mouseup', draggable['_hyphenDragHandlers'].mouseUp);
         delete draggable['_hyphenDragHandlers'];
-      }
-    });
-    
-    // Remove any text popups
-    const textPopups = document.querySelectorAll('.hyphen-text-popup');
-    textPopups.forEach(popup => {
-      if (popup.parentNode) {
-        popup.parentNode.removeChild(popup);
       }
     });
     
@@ -1349,7 +1354,7 @@ export class CursorFlowUI {
       }
     });
     
-    console.log('All UI elements cleaned up');
+    console.log('UI elements cleaned up', keepCursor ? '(keeping cursor)' : '');
   }
 
   /*
