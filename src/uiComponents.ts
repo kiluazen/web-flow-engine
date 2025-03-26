@@ -600,6 +600,24 @@ export class CursorFlowUI {
         wrapper.appendChild(cursor);
         document.body.appendChild(wrapper);
     }
+
+    // IMPORTANT: Clean up previous observers and handlers before setting up new ones
+    if (wrapper['observer']) {
+        wrapper['observer'].disconnect();
+        wrapper['observer'] = null;
+    }
+    if (wrapper['scrollHandler']) {
+        window.removeEventListener('scroll', wrapper['scrollHandler']);
+        window.removeEventListener('resize', wrapper['scrollHandler']);
+        wrapper['scrollHandler'] = null;
+    }
+    if (wrapper['resizeHandler']) {
+        window.removeEventListener('resize', wrapper['resizeHandler']);
+        wrapper['resizeHandler'] = null;
+    }
+    
+    // Store current target element reference
+    wrapper['currentElement'] = element;
     
     // Add smooth transition for cursor movement
     cursor.style.transition = 'all 0.5s ease';
@@ -615,12 +633,46 @@ export class CursorFlowUI {
     // Log cursor position for debugging
     console.log('[CURSOR-DEBUG] Moving cursor to element:', {
         element: element.outerHTML.substring(0, 100),
-        currentPosition: wrapper.style.transform
+        currentPosition: wrapper.style.transform,
+        timestamp: new Date().getTime()
     });
     
-    // Create a MutationObserver to watch for changes to the element
+    // Function to update the wrapper position with smooth animation
+    const updatePosition = () => {
+        // Only update position if this is still the current target element
+        if (wrapper['currentElement'] !== element) {
+            console.log('[CURSOR-DEBUG] Skipping position update - element is no longer current target');
+            return;
+        }
+
+        const rect = element.getBoundingClientRect();
+        const scrollX = window.scrollX || window.pageXOffset;
+        const scrollY = window.scrollY || window.pageYOffset;
+        
+        // Add transition to wrapper for smooth sliding
+        wrapper.style.transition = 'transform 0.5s ease';
+        wrapper.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
+        wrapper.style.width = `${rect.width}px`;
+        wrapper.style.height = `${rect.height}px`;
+
+        console.log('[CURSOR-DEBUG] Updated position for element:', {
+            element: element.outerHTML.substring(0, 100),
+            newPosition: wrapper.style.transform,
+            timestamp: new Date().getTime()
+        });
+    };
+    
+    // Create a MutationObserver with debouncing to prevent rapid updates
+    let debounceTimeout: any;
     const observer = new MutationObserver(() => {
-        updatePosition();
+        if (debounceTimeout) {
+            clearTimeout(debounceTimeout);
+        }
+        debounceTimeout = setTimeout(() => {
+            if (wrapper['currentElement'] === element) {
+                updatePosition();
+            }
+        }, 100);
     });
     
     // Watch for changes to the element's attributes and children
@@ -633,31 +685,42 @@ export class CursorFlowUI {
     // Store the observer on the wrapper for later cleanup
     wrapper['observer'] = observer;
     
-    // Function to update the wrapper position with smooth animation
-    const updatePosition = () => {
-        const rect = element.getBoundingClientRect();
-        const scrollX = window.scrollX || window.pageXOffset;
-        const scrollY = window.scrollY || window.pageYOffset;
-        
-        // Add transition to wrapper for smooth sliding
-        wrapper.style.transition = 'transform 0.5s ease';
-        wrapper.style.transform = `translate(${rect.left + scrollX}px, ${rect.top + scrollY}px)`;
-        wrapper.style.width = `${rect.width}px`;
-        wrapper.style.height = `${rect.height}px`;
-    };
-    
     // Update position immediately and then after a short delay to ensure rendering
     updatePosition();
     setTimeout(updatePosition, 100);
     
-    // Update position on scroll and resize
-    const handler = () => updatePosition();
-    window.addEventListener('scroll', handler, { passive: true });
-    window.addEventListener('resize', handler, { passive: true });
+    // Create handlers for scroll and resize events with debouncing
+    let scrollTimeout: any;
+    const scrollHandler = () => {
+        if (scrollTimeout) {
+            clearTimeout(scrollTimeout);
+        }
+        scrollTimeout = setTimeout(() => {
+            if (wrapper['currentElement'] === element) {
+                updatePosition();
+            }
+        }, 100);
+    };
+
+    let resizeTimeout: any;
+    const resizeHandler = () => {
+        if (resizeTimeout) {
+            clearTimeout(resizeTimeout);
+        }
+        resizeTimeout = setTimeout(() => {
+            if (wrapper['currentElement'] === element) {
+                updatePosition();
+            }
+        }, 100);
+    };
+    
+    // Add event listeners
+    window.addEventListener('scroll', scrollHandler, { passive: true });
+    window.addEventListener('resize', resizeHandler, { passive: true });
     
     // Store the handlers on the wrapper for later cleanup
-    wrapper['scrollHandler'] = handler;
-    wrapper['resizeHandler'] = handler;
+    wrapper['scrollHandler'] = scrollHandler;
+    wrapper['resizeHandler'] = resizeHandler;
   }
   
   static positionTextPopupNearCursor(cursor: HTMLElement, popup: HTMLElement): void {
@@ -1053,9 +1116,11 @@ export class CursorFlowUI {
         // Clean up event listeners
         if (container['observer']) {
             container['observer'].disconnect();
+            container['observer'] = null;
         }
         if (container['parentObserver']) {
             container['parentObserver'].disconnect();
+            container['parentObserver'] = null;
         }
         if (container['positionInterval']) {
             clearInterval(container['positionInterval']);
@@ -1063,6 +1128,7 @@ export class CursorFlowUI {
         if (container['scrollHandler']) {
             window.removeEventListener('scroll', container['scrollHandler']);
             window.removeEventListener('resize', container['scrollHandler']);
+            container['scrollHandler'] = null;
         }
         document.body.removeChild(container);
     }
@@ -1107,24 +1173,30 @@ export class CursorFlowUI {
     // Only clean up cursor if explicitly requested
     if (!keepCursor) {
         // Find cursor wrapper by ID
-        const cursorWrapper = document.getElementById('hyphenbox-cursor-wrapper');
+        const cursorWrapper = document.getElementById('hyphenbox-cursor-wrapper') as EnhancedHTMLElement;
         if (cursorWrapper) {
             try {
-                const enhancedWrapper = cursorWrapper as EnhancedHTMLElement;
-                // Clean up all event listeners and observers
-                if (enhancedWrapper['observer']) {
-                    enhancedWrapper['observer'].disconnect();
+                // Clean up all observers and handlers
+                if (cursorWrapper['observer']) {
+                    cursorWrapper['observer'].disconnect();
+                    cursorWrapper['observer'] = null;
                 }
-                if (enhancedWrapper['parentObserver']) {
-                    enhancedWrapper['parentObserver'].disconnect();
+                if (cursorWrapper['scrollHandler']) {
+                    window.removeEventListener('scroll', cursorWrapper['scrollHandler']);
+                    window.removeEventListener('resize', cursorWrapper['scrollHandler']);
+                    cursorWrapper['scrollHandler'] = null;
                 }
-                if (enhancedWrapper['positionInterval']) {
-                    clearInterval(enhancedWrapper['positionInterval']);
+                if (cursorWrapper['resizeHandler']) {
+                    window.removeEventListener('resize', cursorWrapper['resizeHandler']);
+                    cursorWrapper['resizeHandler'] = null;
                 }
-                if (enhancedWrapper['scrollHandler']) {
-                    window.removeEventListener('scroll', enhancedWrapper['scrollHandler']);
-                    window.removeEventListener('resize', enhancedWrapper['scrollHandler']);
+                if (cursorWrapper['positionInterval']) {
+                    clearInterval(cursorWrapper['positionInterval']);
                 }
+                
+                // Clear current element reference
+                cursorWrapper['currentElement'] = null;
+                
                 // Remove the wrapper and cursor
                 if (cursorWrapper.parentNode) {
                     cursorWrapper.parentNode.removeChild(cursorWrapper);
@@ -1157,7 +1229,7 @@ export class CursorFlowUI {
         }
     });
 
-    console.log('UI elements cleaned up', keepCursor ? '(keeping cursor)' : '(including cursor)');
+    console.log('[CLEANUP-DEBUG] UI elements cleaned up', keepCursor ? '(keeping cursor)' : '(including cursor)');
   }
 
   static showRedirectNotification(options: RedirectNotificationOptions): HTMLElement {
