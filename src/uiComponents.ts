@@ -545,7 +545,7 @@ export class CursorFlowUI {
     highlight.style.height = 'calc(100% + 6px)';
     highlight.style.transform = 'translate(-3px, -3px)';
     highlight.style.pointerEvents = 'none';
-    highlight.style.zIndex = '1';
+    highlight.style.zIndex = '9995';
     highlight.style.border = `2px solid ${(theme?.highlightBorderColor) || '#FF6B00'}`;
     highlight.style.backgroundColor = (theme?.highlightColor) || 'rgba(255, 107, 0, 0.1)';
     highlight.style.borderRadius = '3px';
@@ -1137,13 +1137,17 @@ export class CursorFlowUI {
             highlight.style.height = `${rect.height + 6}px`;
             highlight.style.transform = 'none'; // Clear any transform
             
+            // Ensure z-index is high enough to be visible
+            highlight.style.zIndex = '9995';
+            
             console.log('[HIGHLIGHT-POSITION] Updated highlight position for element:', {
                 elementRect: rect,
                 highlightPosition: {
                     top: highlight.style.top,
                     left: highlight.style.left,
                     width: highlight.style.width,
-                    height: highlight.style.height
+                    height: highlight.style.height,
+                    zIndex: highlight.style.zIndex
                 }
             });
         } catch (error) {
