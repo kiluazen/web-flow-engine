@@ -124,25 +124,17 @@ export class ElementUtils {
                 console.log(`[ELEMENT-FINDER] Found ${semanticMatches.length} semantic class pattern matches in ${name}`);
                 
                 if (semanticMatches.length > 0) {
-                  // If we have placeholder text, use that to find the right input
-                  if (element.attributes) {
-                    const attrs = typeof element.attributes === 'string'
-                      ? JSON.parse(element.attributes)
-                      : element.attributes;
-                    
-                    if (attrs.placeholder) {
-                      const placeholderMatch = semanticMatches.find(el => 
-                        (el as HTMLElement).getAttribute('placeholder') === attrs.placeholder
-                      ) as HTMLElement;
-                      
-                      if (placeholderMatch) {
-                        console.log(`[ELEMENT-FINDER] Found placeholder match in ${name}`);
-                        return placeholderMatch;
-                      }
+                  const targetText = element.textContent || interaction.text;
+                  if (targetText) {
+                    const textMatch = semanticMatches.find(el => 
+                      this.isTextMatch(el as HTMLElement, targetText)
+                    );
+                    if (textMatch) {
+                      console.log(`[ELEMENT-FINDER] Found semantic match with matching text in ${name}`);
+                      return textMatch as HTMLElement;
                     }
+                    continue;
                   }
-                  
-                  // Return first match if we can't refine further
                   return semanticMatches[0] as HTMLElement;
                 }
               }
@@ -184,7 +176,24 @@ export class ElementUtils {
                 console.log(`[ELEMENT-FINDER] Found ${elements.length} attribute matches in ${name}`);
                 
                 if (elements.length > 0) {
-                  return elements[0] as HTMLElement; // Return first match
+                  // Get target text from either element.textContent or interaction.text
+                  const targetText = element.textContent || interaction.text;
+                  
+                  // If we have target text, find element with matching text
+                  if (targetText) {
+                    console.log(`[ELEMENT-FINDER] Checking text content match for "${targetText}"`);
+                    for (const el of elements) {
+                      if (this.isTextMatch(el as HTMLElement, targetText)) {
+                        console.log(`[ELEMENT-FINDER] Found element with matching text in ${name}`);
+                        return el as HTMLElement;
+                      }
+                    }
+                    // If no text match found, continue to next search root
+                    continue;
+                  }
+                  
+                  // Only return first match if no text to match against
+                  return elements[0] as HTMLElement;
                 }
               } catch (e) {
                 console.log(`[ELEMENT-FINDER] Error with attribute selector in ${name}:`, e);
@@ -588,4 +597,12 @@ export class ElementUtils {
         setTimeout(checkPortalStability, 200);
       });
     }
-  }
+  
+    // Add this helper function before the class methods
+    private static isTextMatch(element: HTMLElement, targetText: string | undefined): boolean {
+      if (!targetText) return true;
+      const elementText = element.textContent?.trim() || '';
+      const searchText = targetText.trim();
+      return elementText === searchText;
+    }
+}
