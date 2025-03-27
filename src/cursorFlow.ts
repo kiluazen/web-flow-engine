@@ -446,7 +446,7 @@ export default class CursorFlow {
       if (notificationOptions) {
         CursorFlowUI.showNotification({
           ...notificationOptions,
-          autoClose: notificationOptions.autoClose || 5000
+          autoClose: notificationOptions.autoClose || 2000 // Default to 2 seconds
         });
       }
       
@@ -460,37 +460,41 @@ export default class CursorFlow {
         console.log('Stopping guide');
       }
       
-      // Clean up all UI elements - pass false to ensure cursor is also cleaned up
-      CursorFlowUI.cleanupAllUI(false);
-      
-      // Reset state
-      this.state = {
-        isPlaying: false,
-        currentStep: 0,
-        recordingId: null,
-        completedSteps: [],
-        timestamp: Date.now(),
-        debug: this.options.debug
-      };
-      
-      // Use immediate clear instead of debounced save
-      StateManager.clear();
-      StateManager.clearSession();
-      
-      // Remove event listeners
-      this.removeExistingListeners();
-      
-      // Update button state
-      this.updateButtonState();
-      
-      // Reset all element references
-      this.cursorElement = null;
-      this.highlightElement = null;
-      this.currentTargetElement = null;
-      
-      if (this.options.debug) {
-        console.log('Guide stopped, state reset');
-      }
+      // Add a small delay before cleaning up UI elements to ensure notification is visible
+      setTimeout(() => {
+        // Clean up all UI elements - pass false to ensure cursor is also cleaned up,
+        // and true to keep notifications
+        CursorFlowUI.cleanupAllUI(false, true);
+        
+        // Reset state
+        this.state = {
+          isPlaying: false,
+          currentStep: 0,
+          recordingId: null,
+          completedSteps: [],
+          timestamp: Date.now(),
+          debug: this.options.debug
+        };
+        
+        // Use immediate clear instead of debounced save
+        StateManager.clear();
+        StateManager.clearSession();
+        
+        // Remove event listeners
+        this.removeExistingListeners();
+        
+        // Update button state
+        this.updateButtonState();
+        
+        // Reset all element references
+        this.cursorElement = null;
+        this.highlightElement = null;
+        this.currentTargetElement = null;
+        
+        if (this.options.debug) {
+          console.log('Guide stopped, state reset');
+        }
+      }, 100); // Small delay to ensure notification shows up first
     }
   
     private async loadRecording(recordingId: string) {
@@ -796,8 +800,8 @@ export default class CursorFlow {
     }
   
     private hideVisualElements() {
-      // Clean up UI elements but keep the cursor
-      CursorFlowUI.cleanupAllUI(true);
+      // Clean up UI elements but keep the cursor and notifications
+      CursorFlowUI.cleanupAllUI(true, true);
       
       // Reset references
       this.highlightElement = null;
@@ -1278,8 +1282,8 @@ export default class CursorFlow {
     private async playNextStep() {
       if (!this.state.isPlaying) return false;
       
-      // Hide current visual elements first, but keep the cursor
-      CursorFlowUI.cleanupAllUI(true);
+      // Hide current visual elements first, but keep the cursor and notifications
+      CursorFlowUI.cleanupAllUI(true, true);
       
       // Remove existing listeners
       this.removeExistingListeners();

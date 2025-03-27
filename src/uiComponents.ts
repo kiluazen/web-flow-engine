@@ -863,75 +863,114 @@ export class CursorFlowUI {
     notification.style.fontSize = '14px';
     notification.style.transition = 'all 0.3s ease';
     notification.style.maxWidth = '300px';
+    notification.style.display = 'flex';  // Add flex display
+    notification.style.flexDirection = 'column';  // Stack children vertically
     
-    // Adjust style based on notification type
-    switch (options.type) {
-      case 'success':
-        notification.style.backgroundColor = '#4CAF50';
-        notification.style.color = '#ffffff';
-        break;
-      case 'error':
-        notification.style.backgroundColor = '#F44336';
-        notification.style.color = '#ffffff';
-        break;
-      case 'warning':
-        notification.style.backgroundColor = '#FFC107';
-        notification.style.color = '#333333';
-        break;
-      default: // info
-        notification.style.backgroundColor = '#2196F3';
-        notification.style.color = '#ffffff';
-    }
+    // Create header with close button
+    const header = document.createElement('div');
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'flex-start';
+    header.style.width = '100%';
+    header.style.marginBottom = options.title ? '0' : '4px';
     
     // Add title if provided
     if (options.title) {
-      const title = document.createElement('div');
-      title.style.fontWeight = 'bold';
-      title.style.marginBottom = '4px';
-      title.textContent = options.title;
-      notification.appendChild(title);
+        const title = document.createElement('div');
+        title.style.fontWeight = 'bold';
+        title.style.marginBottom = '4px';
+        title.style.flex = '1';
+        title.textContent = options.title;
+        header.appendChild(title);
     }
+    
+    // Add close button
+    const closeButton = document.createElement('button');
+    closeButton.innerHTML = '✕';
+    closeButton.style.background = 'none';
+    closeButton.style.border = 'none';
+    closeButton.style.color = options.type === 'warning' ? '#333333' : '#ffffff';
+    closeButton.style.cursor = 'pointer';
+    closeButton.style.padding = '0 0 0 8px';
+    closeButton.style.fontSize = '14px';
+    closeButton.style.opacity = '0.7';
+    closeButton.style.marginLeft = '8px';
+    closeButton.addEventListener('mouseover', () => closeButton.style.opacity = '1');
+    closeButton.addEventListener('mouseout', () => closeButton.style.opacity = '0.7');
+    closeButton.addEventListener('click', () => {
+        if (notification.parentNode) {
+            notification.style.opacity = '0';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }
+    });
+    header.appendChild(closeButton);
+    
+    notification.appendChild(header);
     
     // Add message
     const message = document.createElement('div');
     message.textContent = options.message;
+    message.style.flex = '1';
     notification.appendChild(message);
+    
+    // Adjust style based on notification type
+    switch (options.type) {
+        case 'success':
+            notification.style.backgroundColor = '#4CAF50';
+            notification.style.color = '#ffffff';
+            break;
+        case 'error':
+            notification.style.backgroundColor = '#F44336';
+            notification.style.color = '#ffffff';
+            break;
+        case 'warning':
+            notification.style.backgroundColor = '#FFC107';
+            notification.style.color = '#333333';
+            break;
+        default: // info
+            notification.style.backgroundColor = '#2196F3';
+            notification.style.color = '#ffffff';
+    }
     
     // Add buttons if provided
     if (options.buttons && options.buttons.length > 0) {
-      const buttonContainer = document.createElement('div');
-      buttonContainer.style.marginTop = '8px';
-      buttonContainer.style.display = 'flex';
-      buttonContainer.style.gap = '8px';
-      buttonContainer.style.flexWrap = 'wrap';
-      
-      options.buttons.forEach(button => {
-        const btn = document.createElement('button');
-        btn.textContent = button.text;
-        btn.style.padding = '6px 12px';
-        btn.style.border = 'none';
-        btn.style.borderRadius = '4px';
-        btn.style.cursor = 'pointer';
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.marginTop = '8px';
+        buttonContainer.style.display = 'flex';
+        buttonContainer.style.gap = '8px';
+        buttonContainer.style.flexWrap = 'wrap';
         
-        if (button.primary) {
-          btn.style.backgroundColor = '#ffffff';
-          btn.style.color = '#333333';
-        } else {
-          btn.style.backgroundColor = 'rgba(255, 255, 255, 0.3)';
-          btn.style.color = options.type === 'warning' ? '#333333' : '#ffffff';
-        }
-        
-        btn.addEventListener('click', () => {
-          if (notification.parentNode) {
-            notification.parentNode.removeChild(notification);
-          }
-          button.onClick();
+        options.buttons.forEach(button => {
+            const btn = document.createElement('button');
+            btn.textContent = button.text;
+            btn.style.padding = '6px 12px';
+            btn.style.border = 'none';
+            btn.style.borderRadius = '4px';
+            btn.style.cursor = 'pointer';
+            
+            if (button.primary) {
+                btn.style.backgroundColor = '#ffffff';
+                btn.style.color = '#333333';
+            } else {
+                btn.style.backgroundColor = 'rgba(255, 255, 255, 0.3)';
+                btn.style.color = options.type === 'warning' ? '#333333' : '#ffffff';
+            }
+            
+            btn.addEventListener('click', () => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+                button.onClick();
+            });
+            
+            buttonContainer.appendChild(btn);
         });
         
-        buttonContainer.appendChild(btn);
-      });
-      
-      notification.appendChild(buttonContainer);
+        notification.appendChild(buttonContainer);
     }
     
     // Add to DOM
@@ -940,27 +979,27 @@ export class CursorFlowUI {
     // Position next to the Guides button
     const guideButton = document.querySelector('.hyphen-start-button');
     if (guideButton) {
-      const buttonRect = guideButton.getBoundingClientRect();
-      notification.style.bottom = `${buttonRect.height + 20}px`;
-      notification.style.right = '20px';
+        const buttonRect = guideButton.getBoundingClientRect();
+        notification.style.bottom = `${buttonRect.height + 20}px`;
+        notification.style.right = '20px';
     } else {
-      // Fallback position if button not found
-      notification.style.bottom = '70px';
-      notification.style.right = '20px';
+        // Fallback position if button not found
+        notification.style.bottom = '70px';
+        notification.style.right = '20px';
     }
     
-    // Auto-close if specified
+    // Auto-close if specified (default to 2000ms for stop notifications)
     if (options.autoClose) {
-      setTimeout(() => {
-        if (notification.parentNode) {
-          notification.style.opacity = '0';
-          setTimeout(() => {
+        setTimeout(() => {
             if (notification.parentNode) {
-              notification.parentNode.removeChild(notification);
+                notification.style.opacity = '0';
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 300);
             }
-          }, 300);
-        }
-      }, options.autoClose);
+        }, options.autoClose);
     }
     
     return notification;
@@ -1109,7 +1148,7 @@ export class CursorFlowUI {
   }
 
   // Add a new method to properly clean up all UI components
-  static cleanupAllUI(keepCursor: boolean = false): void {
+  static cleanupAllUI(keepCursor: boolean = false, keepNotifications: boolean = true): void {
     // Clean up the guidance container and its contents
     const container = document.querySelector('.hyphen-guidance-container') as EnhancedHTMLElement;
     if (container) {
@@ -1221,15 +1260,17 @@ export class CursorFlowUI {
         }
     });
 
-    // Clean up any notifications
-    const notifications = document.querySelectorAll('.hyphen-notification');
-    notifications.forEach(notification => {
-        if (notification.parentNode) {
-            notification.parentNode.removeChild(notification);
-        }
-    });
+    // Clean up any notifications only if explicitly requested
+    if (!keepNotifications) {
+        const notifications = document.querySelectorAll('.hyphen-notification');
+        notifications.forEach(notification => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        });
+    }
 
-    console.log('[CLEANUP-DEBUG] UI elements cleaned up', keepCursor ? '(keeping cursor)' : '(including cursor)');
+    console.log('[CLEANUP-DEBUG] UI elements cleaned up', keepCursor ? '(keeping cursor)' : '(including cursor)', keepNotifications ? '(keeping notifications)' : '(including notifications)');
   }
 
   static showRedirectNotification(options: RedirectNotificationOptions): HTMLElement {
