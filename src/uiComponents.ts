@@ -1105,23 +1105,34 @@ export class CursorFlowUI {
         }
     });
 
-    // Create a non-intrusive overlay highlight that doesn't modify the DOM structure
-    // First, remove the highlight from its current parent if it has one
+    // Remove highlight from current parent if it exists
     if (highlight.parentElement) {
         highlight.parentElement.removeChild(highlight);
     }
     
-    // Add the highlight to the document body so it's independent of element structure
+    // Add the highlight to the document body
     document.body.appendChild(highlight);
     
-    // Set up highlight style for absolute positioning relative to window
+    // Set up highlight style
     highlight.style.position = 'absolute';
-    highlight.style.pointerEvents = 'none'; // Make sure it doesn't interfere with clicks
+    highlight.style.pointerEvents = 'none';
     
     // Store element reference for cleanup
     (highlight as any)._targetElement = element;
     
-    // Function to update highlight position based on element position
+    // Function to check if element position has stabilized
+    let lastRect: DOMRect | null = null;
+    const hasPositionChanged = (rect: DOMRect): boolean => {
+        if (!lastRect) return true;
+        return (
+            Math.abs(rect.top - lastRect.top) > 0.5 ||
+            Math.abs(rect.left - lastRect.left) > 0.5 ||
+            Math.abs(rect.width - lastRect.width) > 0.5 ||
+            Math.abs(rect.height - lastRect.height) > 0.5
+        );
+    };
+
+    // Function to update highlight position
     const updateHighlightPosition = () => {
         if (!element || !highlight) return;
         
@@ -1130,15 +1141,15 @@ export class CursorFlowUI {
             const scrollX = window.scrollX || document.documentElement.scrollLeft;
             const scrollY = window.scrollY || document.documentElement.scrollTop;
             
-            // Position highlight absolutely to match element position
+            // Position highlight
             highlight.style.top = `${rect.top + scrollY - 3}px`;
             highlight.style.left = `${rect.left + scrollX - 3}px`;
             highlight.style.width = `${rect.width + 6}px`;
             highlight.style.height = `${rect.height + 6}px`;
-            highlight.style.transform = 'none'; // Clear any transform
-            
-            // Ensure z-index is high enough to be visible
+            highlight.style.transform = 'none';
             highlight.style.zIndex = '9995';
+            
+            lastRect = rect;
             
             console.log('[HIGHLIGHT-POSITION] Updated highlight position for element:', {
                 elementRect: rect,
@@ -1154,28 +1165,59 @@ export class CursorFlowUI {
             console.error('[HIGHLIGHT-POSITION] Error updating highlight position:', error);
         }
     };
-    
-    // Update position immediately
-    updateHighlightPosition();
+
+    // Initial position update with stability check
+    let stabilityAttempts = 0;
+    const MAX_STABILITY_ATTEMPTS = 10;
+    const checkStability = () => {
+        const rect = element.getBoundingClientRect();
+        
+        if (hasPositionChanged(rect)) {
+            lastRect = rect;
+            stabilityAttempts++;
+            
+            if (stabilityAttempts < MAX_STABILITY_ATTEMPTS) {
+                // Position changed, wait a bit and check again
+                setTimeout(checkStability, 50);
+            } else {
+                // Max attempts reached, use final position
+                updateHighlightPosition();
+            }
+        } else {
+            // Position has stabilized
+            updateHighlightPosition();
+        }
+    };
+
+    // Start stability checks after a short delay to allow for initial render
+    setTimeout(checkStability, 50);
     
     // Create handler for scroll and resize events
     const scrollResizeHandler = () => {
         requestAnimationFrame(updateHighlightPosition);
     };
     
-    // Create mutation observer to watch for DOM changes
+    // Create mutation observer for DOM changes
     const observer = new MutationObserver(() => {
         requestAnimationFrame(updateHighlightPosition);
     });
     
-    // Observe the element for changes that might affect position/size
+    // Observe the element and its parent for changes
     observer.observe(element, {
         attributes: true,
         childList: true,
         subtree: true
     });
     
-    // Store handlers and observer on highlight for later cleanup
+    if (element.parentElement) {
+        observer.observe(element.parentElement, {
+            attributes: true,
+            childList: true,
+            subtree: true
+        });
+    }
+    
+    // Store handlers and observer on highlight for cleanup
     (highlight as any)._scrollResizeHandler = scrollResizeHandler;
     (highlight as any)._observer = observer;
     
@@ -1183,7 +1225,7 @@ export class CursorFlowUI {
     window.addEventListener('scroll', scrollResizeHandler, { passive: true });
     window.addEventListener('resize', scrollResizeHandler, { passive: true });
     
-    console.log('[HIGHLIGHT-POSITION] Highlight positioned successfully using overlay approach');
+    console.log('[HIGHLIGHT-POSITION] Highlight positioning setup completed with stability checks');
   }
 
   // Add a new method to properly clean up all UI components
