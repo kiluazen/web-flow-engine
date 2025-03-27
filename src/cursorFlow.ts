@@ -5,6 +5,14 @@ import { CursorFlowOptions, CursorFlowState } from './types';
 import { ElementUtils } from './elementUtils';
 import { DomAnalyzer } from './domAnalyzer';
 
+// Add type definition for notification options
+type NotificationType = 'warning' | 'info' | 'success' | 'error';
+interface StopNotificationOptions {
+    message: string;
+    type: NotificationType;
+    autoClose?: number;
+}
+
 export default class CursorFlow {
     // Properties
     private options: CursorFlowOptions;
@@ -429,7 +437,15 @@ export default class CursorFlow {
       CursorFlowUI.positionHighlightOnElement(element, highlight);
     }
   
-    stop() {
+    stop(notificationOptions?: StopNotificationOptions) {
+      // If notification options provided, show notification
+      if (notificationOptions) {
+        CursorFlowUI.showNotification({
+          ...notificationOptions,
+          autoClose: notificationOptions.autoClose || 5000
+        });
+      }
+      
       // Hide thinking indicator when stopping the guide
       if (this.thinkingIndicator) {
         CursorFlowUI.hideThinkingIndicator(this.thinkingIndicator);
@@ -928,32 +944,40 @@ export default class CursorFlow {
                   });
                 }
                 
-                this.stop();
+                this.stop({
+                  message: 'Please complete previous steps first',
+                  type: 'warning'
+                });
               }
             }
             console.timeEnd('Process context step');
           } else {
             console.log('handleNavigation: No matching steps for this URL');
-            
             // Check if all steps are completed
             console.time('Check completion');
             const allSteps = this.recording.steps || [];
-            const allCompleted = allSteps.every((step: any) => {
-              const stepPosition = step.position || 0;
-              return this.state.completedSteps.includes(stepPosition);
+            const allCompleted = allSteps.every((step: { position?: number }) => {
+                const stepPosition = step.position || 0;
+                return this.state.completedSteps.includes(stepPosition);
             });
-            
             if (allCompleted && allSteps.length > 0) {
-              console.log('handleNavigation: All guide steps completed');
-              this.completeGuide();
+                console.log('handleNavigation: All guide steps completed');
+                this.completeGuide();
             } else {
-              // Navigated away
-              CursorFlowUI.showNotification({
-                message: 'You\'ve navigated away from the guide path',
-                type: 'warning',
-                autoClose: 5000
-              });
-              this.stop();
+                // Show notification before stopping
+                CursorFlowUI.showNotification({
+                    message: 'Oops! You\'ve navigated away from the guide path',
+                    type: 'warning',
+                    autoClose: 5000
+                });
+                
+                // Add a small delay before stopping to ensure notification is shown
+                setTimeout(() => {
+                    this.stop({
+                        message: 'Oops! You\'ve navigated away from the guide path',
+                        type: 'warning'
+                    });
+                }, 100);
             }
             console.timeEnd('Check completion');
           }
@@ -1079,10 +1103,9 @@ export default class CursorFlow {
             console.log('User clicked outside the highlighted element, stopping guide');
             
             // Show notification
-            CursorFlowUI.showNotification({
+            this.stop({
               message: 'Incorrect click. Guide stopped.',
-              type: 'error',
-              autoClose: 5000
+              type: 'error'
             });
             
             // Stop the guide
