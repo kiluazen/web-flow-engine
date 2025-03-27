@@ -1105,46 +1105,81 @@ export class CursorFlowUI {
         }
     });
 
-    // First, check if we need to handle overflow
-    const parentElement = element.parentElement;
-    if (!parentElement) {
-        console.log('[HIGHLIGHT-POSITION] No parent element found, attaching highlight directly');
-        element.appendChild(highlight);
-        return;
+    // Create a non-intrusive overlay highlight that doesn't modify the DOM structure
+    // First, remove the highlight from its current parent if it has one
+    if (highlight.parentElement) {
+        highlight.parentElement.removeChild(highlight);
     }
-
-    const parentStyle = window.getComputedStyle(parentElement);
-    const hasOverflowHidden = parentStyle.overflow === 'hidden' || 
-                             parentStyle.overflowX === 'hidden' || 
-                             parentStyle.overflowY === 'hidden';
-
-    if (hasOverflowHidden) {
-        console.log('[HIGHLIGHT-POSITION] Detected overflow:hidden, creating wrapper');
+    
+    // Add the highlight to the document body so it's independent of element structure
+    document.body.appendChild(highlight);
+    
+    // Set up highlight style for absolute positioning relative to window
+    highlight.style.position = 'absolute';
+    highlight.style.pointerEvents = 'none'; // Make sure it doesn't interfere with clicks
+    
+    // Store element reference for cleanup
+    (highlight as any)._targetElement = element;
+    
+    // Function to update highlight position based on element position
+    const updateHighlightPosition = () => {
+        if (!element || !highlight) return;
         
-        // Create a wrapper that will contain both element and highlight
-        const wrapper = document.createElement('div');
-        wrapper.style.position = 'relative';
-        wrapper.style.width = '100%';
-        wrapper.style.height = '100%';
-        
-        // Move the element into the wrapper
-        parentElement.insertBefore(wrapper, element);
-        wrapper.appendChild(element);
-        
-        // Add the highlight as a sibling
-        wrapper.appendChild(highlight);
-    } else {
-        // Check if element has position static
-        const elementStyle = window.getComputedStyle(element);
-        if (elementStyle.position === 'static') {
-            element.style.position = 'relative';
+        try {
+            const rect = element.getBoundingClientRect();
+            const scrollX = window.scrollX || document.documentElement.scrollLeft;
+            const scrollY = window.scrollY || document.documentElement.scrollTop;
+            
+            // Position highlight absolutely to match element position
+            highlight.style.top = `${rect.top + scrollY - 3}px`;
+            highlight.style.left = `${rect.left + scrollX - 3}px`;
+            highlight.style.width = `${rect.width + 6}px`;
+            highlight.style.height = `${rect.height + 6}px`;
+            highlight.style.transform = 'none'; // Clear any transform
+            
+            console.log('[HIGHLIGHT-POSITION] Updated highlight position for element:', {
+                elementRect: rect,
+                highlightPosition: {
+                    top: highlight.style.top,
+                    left: highlight.style.left,
+                    width: highlight.style.width,
+                    height: highlight.style.height
+                }
+            });
+        } catch (error) {
+            console.error('[HIGHLIGHT-POSITION] Error updating highlight position:', error);
         }
-        
-        // Add highlight directly to the element
-        element.appendChild(highlight);
-    }
-
-    console.log('[HIGHLIGHT-POSITION] Highlight positioned successfully');
+    };
+    
+    // Update position immediately
+    updateHighlightPosition();
+    
+    // Create handler for scroll and resize events
+    const scrollResizeHandler = () => {
+        requestAnimationFrame(updateHighlightPosition);
+    };
+    
+    // Create mutation observer to watch for DOM changes
+    const observer = new MutationObserver(() => {
+        requestAnimationFrame(updateHighlightPosition);
+    });
+    
+    // Observe the element for changes that might affect position/size
+    observer.observe(element, {
+        attributes: true,
+        childList: true,
+        subtree: true
+    });
+    
+    // Store handlers and observer on highlight for later cleanup
+    (highlight as any)._scrollResizeHandler = scrollResizeHandler;
+    (highlight as any)._observer = observer;
+    
+    // Add event listeners
+    window.addEventListener('scroll', scrollResizeHandler, { passive: true });
+    window.addEventListener('resize', scrollResizeHandler, { passive: true });
+    
+    console.log('[HIGHLIGHT-POSITION] Highlight positioned successfully using overlay approach');
   }
 
   // Add a new method to properly clean up all UI components
@@ -1176,27 +1211,24 @@ export class CursorFlowUI {
     const highlights = document.querySelectorAll('.hyphen-highlight');
     highlights.forEach(highlight => {
         try {
-            const parent = highlight.parentElement;
-            if (!parent) return;
-
-            // If highlight is in a wrapper, remove the wrapper
-            if (parent.style && parent.style.position === 'relative' && parent.children.length === 2) {
-                // This is likely our wrapper div, get the original element
-                const originalElement = parent.children[0];
-                const grandParent = parent.parentElement;
-                if (grandParent) {
-                    // Move original element back to its original position
-                    grandParent.insertBefore(originalElement, parent);
-                    // Remove the wrapper
-                    grandParent.removeChild(parent);
-                }
-            } else {
-                // Direct child of the target element
-                parent.removeChild(highlight);
-                // Reset position if we set it to relative
-                if (parent.style && parent.style.position === 'relative') {
-                    parent.style.removeProperty('position');
-                }
+            // Clean up event listeners and observers for the new overlay approach
+            if ((highlight as any)._scrollResizeHandler) {
+                window.removeEventListener('scroll', (highlight as any)._scrollResizeHandler);
+                window.removeEventListener('resize', (highlight as any)._scrollResizeHandler);
+                (highlight as any)._scrollResizeHandler = null;
+            }
+            
+            if ((highlight as any)._observer) {
+                (highlight as any)._observer.disconnect();
+                (highlight as any)._observer = null;
+            }
+            
+            // Remove reference to target element
+            (highlight as any)._targetElement = null;
+            
+            // Remove the highlight from DOM
+            if (highlight.parentNode) {
+                highlight.parentNode.removeChild(highlight);
             }
         } catch (error) {
             console.warn('Error cleaning up highlight:', error);
