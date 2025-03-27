@@ -147,18 +147,21 @@ export default class CursorFlow {
       console.log('[CURSOR-FLOW-DEBUG] Creating start button');
       console.log('[CURSOR-FLOW-DEBUG] Current buttonText:', this.options.buttonText);
       
-      if (!this.startButton) {
-        this.startButton = CursorFlowUI.createStartButton(
+      // First, remove any existing start buttons to prevent duplicates
+      const existingButtons = document.querySelectorAll('.hyphen-start-button');
+      existingButtons.forEach(button => button.remove());
+      
+      // Create new button
+      this.startButton = CursorFlowUI.createStartButton(
           this.options.buttonText || 'Guides',
           this.options.theme?.buttonColor || '#007bff',
           () => this.toggleGuideState()
-        );
-        
-        document.body.appendChild(this.startButton);
-        
-        if (this.options.debug) {
+      );
+      
+      document.body.appendChild(this.startButton);
+      
+      if (this.options.debug) {
           console.log('[CURSOR-FLOW-DEBUG] Start button created and appended to body');
-        }
       }
       
       // Update button text based on current state
@@ -180,26 +183,27 @@ export default class CursorFlow {
       console.log('[CURSOR-FLOW-DEBUG] Current state:', { isPlaying: this.state.isPlaying });
       
       if (!this.startButton) {
-        console.warn('[CURSOR-FLOW-DEBUG] No start button found to update');
-        return;
+          console.warn('[CURSOR-FLOW-DEBUG] No start button found to update');
+          return;
       }
       
+      // Get or create the text span
+      let textSpan = this.startButton.querySelector('.hyphen-text');
+      if (!textSpan) {
+          textSpan = document.createElement('span');
+          textSpan.className = 'hyphen-text';
+          this.startButton.appendChild(textSpan);
+      }
+      
+      // Update text and class in a single operation
       if (this.state.isPlaying) {
-        console.log('[CURSOR-FLOW-DEBUG] Setting button to "Stop Guide"');
-        // Update only the text span while preserving the SVG
-        const textSpan = this.startButton.querySelector('.hyphen-text');
-        if (textSpan) {
+          console.log('[CURSOR-FLOW-DEBUG] Setting button to "Stop Guide"');
           textSpan.textContent = 'Stop Guide';
-        }
-        this.startButton.classList.add('hyphen-playing');
+          this.startButton.classList.add('hyphen-playing');
       } else {
-        console.log('[CURSOR-FLOW-DEBUG] Setting button to:', this.options.buttonText || 'Guides');
-        // Update only the text span while preserving the SVG
-        const textSpan = this.startButton.querySelector('.hyphen-text');
-        if (textSpan) {
+          console.log('[CURSOR-FLOW-DEBUG] Setting button to:', this.options.buttonText || 'Guides');
           textSpan.textContent = this.options.buttonText || 'Guides';
-        }
-        this.startButton.classList.remove('hyphen-playing');
+          this.startButton.classList.remove('hyphen-playing');
       }
     }
   
