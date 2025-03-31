@@ -47,8 +47,8 @@ export default class CursorFlow {
       console.log('[CURSOR-FLOW-DEBUG] Final options after defaults:', this.options);
       
       // Create API client
-      // this.apiClient = new ApiClient(this.options.apiUrl, this.options.organizationId);
-      this.apiClient = new ApiClient('https://hyphenbox-backend.onrender.com', this.options.organizationId);
+      this.apiClient = new ApiClient(this.options.apiUrl, this.options.organizationId);
+      // this.apiClient = new ApiClient('https://hyphenbox-backend.onrender.com', this.options.organizationId);
       
       // Initialize empty state
       this.state = {
