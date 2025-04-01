@@ -3,7 +3,9 @@ import { StateManager } from './manageState';
 import { CursorFlowUI } from './uiComponents';
 import { CursorFlowOptions, CursorFlowState } from './types';
 import { ElementUtils } from './elementUtils';
-import { DomAnalyzer } from './domAnalyzer';
+import { RobustElementFinder } from './robustElementFinder';
+import { SelectiveDomAnalyzer } from './selectiveDomAnalyzer';
+
 
 // Add type definition for notification options
 type NotificationType = 'warning' | 'info' | 'success' | 'error';
@@ -646,7 +648,7 @@ export default class CursorFlow {
     // Add this helper method for debug logging
     private debugLog(...args: any[]): void {
       if (this.options.debug) {
-        console.log(...args);
+        console.log('[CursorFlow]', ...args);
       }
     }
     
@@ -658,100 +660,146 @@ export default class CursorFlow {
       }
       
       if (!this.recording || !this.state.isPlaying) {
-        console.warn('No active recording or not in playing state');
+        console.warn('[CursorFlow] No active recording or not in playing state');
         return false;
       }
       
       // Get current step from recording
-      let currentStep;
-      if (this.recording.steps && this.recording.steps.length > 0) {
-        // If this is position-based, find by position, otherwise use index
-        if (this.recording.steps[0].position !== undefined) {
-          // Find first uncompleted step
-          for (const step of this.sortedSteps) {
-            const stepIndex = step.position;
-            if (!this.state.completedSteps.includes(stepIndex)) {
-              currentStep = step;
-              break;
-            }
+      let currentStep: any; // Use 'any' for simplicity or define a proper Step type
+       if (this.recording.steps && this.recording.steps.length > 0) {
+          // Find the current step based on state.currentStep and sortedSteps
+          // Find step by position if available
+          if (this.sortedSteps[0]?.position !== undefined) {
+              const targetPosition = this.sortedSteps[this.state.currentStep]?.position;
+              if (targetPosition !== undefined) {
+                   // Find the actual step object matching the position from the potentially incomplete state.currentStep index
+                  currentStep = this.sortedSteps.find(step => step.position === targetPosition);
+                  // If the direct index didn't work (e.g., after skip), find the first uncompleted
+                  if (!currentStep || this.state.completedSteps.includes(currentStep.position)) {
+                      currentStep = this.sortedSteps.find(step => !this.state.completedSteps.includes(step.position));
+                  }
+              } else {
+                   // Fallback if position is missing unexpectedly
+                   currentStep = this.sortedSteps[this.state.currentStep];
+              }
+          } else {
+              // Index-based fallback
+              currentStep = this.sortedSteps[this.state.currentStep];
           }
-          
-          // If all steps completed, use the last one
-          if (!currentStep && this.sortedSteps.length > 0) {
-            currentStep = this.sortedSteps[this.sortedSteps.length - 1];
-          }
-        } else {
-          // Use index-based approach
-          currentStep = this.recording.steps[this.state.currentStep];
-        }
-      }
-      
+       }
+
+
       if (!currentStep) {
-        console.warn('No step found for current position');
-        return false;
+          // Potentially all steps completed or state is inconsistent
+           const nextStep = this.findNextStep(); // Check if there's logically a next step
+          if (nextStep) {
+              currentStep = nextStep;
+              // Update state.currentStep to match the found next step's index in sortedSteps
+              this.state.currentStep = this.sortedSteps.findIndex(step => step === nextStep);
+              this.debugLog(`State inconsistency? Found next logical step at index ${this.state.currentStep}, position ${currentStep.position}. Proceeding.`);
+              StateManager.saveWithDebounce(this.state); // Save corrected state
+          } else {
+              console.warn('[CursorFlow] No current or next step found. Guide might be complete or state is invalid.');
+              this.completeGuide(); // Assume completion if no steps left
+              return false;
+          }
       }
-      
-      this.debugLog('Playing step:', currentStep);
-      
+
+
+      this.debugLog(`Playing step ${this.state.currentStep} (Position: ${currentStep.position || 'N/A'})`);
+
       // Find target element from interaction data
       const interaction = currentStep.interaction || {};
-      this.debugLog('Full interaction object:', JSON.stringify(interaction));
-      
-      // Support both interaction.element.textContent and interaction.text
-      if (interaction.element?.textContent) {
-        this.debugLog('Using element textContent for finding:', interaction.element.textContent);
-        interaction.text = interaction.element.textContent;
+      // Ensure interaction text is populated if available in element data
+      if (!interaction.text && interaction.element?.textContent) {
+          interaction.text = interaction.element.textContent;
       }
-      
+      this.debugLog('Interaction data:', JSON.stringify(interaction));
+
+
       // Before we search for elements, check if navigation is expected
       const expectedPath = interaction.pageInfo?.path;
       const currentPath = window.location.pathname;
       const isNavigationExpected = expectedPath && expectedPath !== currentPath;
-      
-      // Only do this quick check if we have path info - very low latency impact
+
       if (isNavigationExpected) {
-        console.log(`Navigation expected from ${currentPath} to ${expectedPath}`);
+          this.debugLog(`Navigation expected from ${currentPath} to ${expectedPath}`);
       }
-      
-      // Add debugging for element finding
-      this.debugLog('Looking for element with properties:', JSON.stringify({
-        text: interaction.text,
-        selector: interaction.selector,
-        action: interaction.action || 'click'
-      }));
-      
-      console.time('Find target element');
-      // NEW: First initialize the DOM analyzer
-      await DomAnalyzer.initialize(500, this.options.debug); // 500px viewport expansion
-      
-      // NEW: Then use it to find the element
-      this.currentTargetElement = DomAnalyzer.findElement(interaction);
-      console.timeEnd('Find target element');
-      
+
+      // --- Use RobustElementFinder to get candidates ---
+      this.debugLog('Finding candidate elements using RobustElementFinder...');
+      console.time('Find candidate elements');
+      RobustElementFinder.setDebugMode(this.options.debug || false);
+      let candidateElements = RobustElementFinder.findCandidates(interaction);
+      console.timeEnd('Find candidate elements');
+      this.debugLog(`RobustFinder found ${candidateElements.length} candidate(s).`);
+
+      let finalTargetElement: HTMLElement | null = null;
+
+      // --- Validate candidates using SelectiveDomAnalyzer ---
+      if (candidateElements.length > 0) {
+          this.debugLog('Validating candidate(s) using SelectiveDomAnalyzer...');
+          SelectiveDomAnalyzer.clearCache(); // Clear cache for this step's validation
+          SelectiveDomAnalyzer.setDebugMode(this.options.debug || false);
+
+          const validCandidates: HTMLElement[] = [];
+          for (const candidate of candidateElements) {
+              if (SelectiveDomAnalyzer.validateCandidateElement(candidate, interaction)) {
+                  validCandidates.push(candidate);
+              }
+              // Logging for failed validation happens inside SelectiveDomAnalyzer if debugMode is on
+          }
+
+          if (validCandidates.length === 1) {
+              this.debugLog('Validation successful: 1 valid candidate found.');
+              finalTargetElement = validCandidates[0];
+          } else if (validCandidates.length > 1) {
+              console.warn(`[CursorFlow] Ambiguity detected: ${validCandidates.length} candidates passed validation.`);
+              this.debugLog('Candidates passing validation:', validCandidates.map(el => el.outerHTML.substring(0, 100) + '...'));
+              // **** Future: Add LLM or other disambiguation logic here ****
+              // For now, pick the first valid candidate as a fallback
+              finalTargetElement = validCandidates[0];
+              console.log('[CursorFlow] Fallback: Picking the first valid candidate.');
+          } else {
+              // No candidates passed validation
+              this.debugLog('Validation failed: No candidates passed deeper checks.');
+              finalTargetElement = null;
+          }
+      } else {
+           // No initial candidates found
+          this.debugLog('Validation skipped: RobustFinder found no initial candidates.');
+          finalTargetElement = null;
+      }
+      // --- End Validation ---
+
+      // Set the determined target element
+      this.currentTargetElement = finalTargetElement;
+
+      // --- Handle Outcome ---
       if (!this.currentTargetElement) {
-        console.warn('Target element not found for step:', currentStep);
-        
-        // NEW CONDITION: Skip error if navigation is expected
-        if (isNavigationExpected) {
-          console.log('Element not found, but navigation is expected - skipping error');
-          return true; // Allow navigation to proceed
-        }
-        
-        console.log('DOM content at time of search:', document.body.innerHTML.substring(0, 500) + '...');
-        this.handleInteractionError();
-        return false;
+          console.warn('[CursorFlow] Target element could not be definitively determined for step:', currentStep);
+          if (isNavigationExpected) {
+              this.debugLog('Element not found/validated, but navigation is expected. Allowing navigation.');
+              // Don't show error UI if navigation is the expected next action
+              return true; // Allow potential navigation to proceed without error UI
+          }
+          // Only show error UI if navigation wasn't expected
+          console.log('DOM content at time of search:', document.body.innerHTML.substring(0, 500) + '...');
+          this.handleInteractionError();
+          return false;
       }
-      
-      this.debugLog('Found target element:', this.currentTargetElement.outerHTML);
-      
+
+      // --- Proceed with Valid Element ---
+      this.debugLog('Successfully identified target element:', this.currentTargetElement.outerHTML.substring(0, 150) + '...');
+
       console.time('Show visual elements');
       await this.showVisualElements(this.currentTargetElement, interaction);
       console.timeEnd('Show visual elements');
-      
+
       console.time('Setup interaction tracking');
       this.setupElementInteractionTracking(this.currentTargetElement, interaction);
       console.timeEnd('Setup interaction tracking');
-      
+
       return true;
     }
   
@@ -762,18 +810,23 @@ export default class CursorFlow {
       }
       
       // Check if element is in view and scroll to it if needed
+      // Uses ElementUtils helper - this is fine as it's a generic DOM utility
       if (!ElementUtils.isElementInView(targetElement)) {
         if (this.options.debug) {
-          console.log('Target element is not in view, scrolling to it');
+          console.log('[CursorFlow] Target element is not in view, scrolling to it');
         }
         await ElementUtils.scrollToElement(targetElement);
       }
       
       // Get annotation text
       let annotationText = '';
-      const currentStep = this.recording?.steps?.[this.state.currentStep];
-      if (currentStep) {
-        annotationText = currentStep.annotation || currentStep.popupText || 'Click here';
+       // Ensure we reference the step correctly, especially after potential state correction
+      const stepData = this.sortedSteps[this.state.currentStep];
+      if (stepData) {
+        annotationText = stepData.annotation || stepData.popupText || 'Perform the next action'; // More generic default
+      } else {
+         console.warn('[CursorFlow] Could not find step data to retrieve annotation.');
+         annotationText = 'Perform the next action';
       }
       
       // Create and position highlight using CursorFlowUI
@@ -786,8 +839,8 @@ export default class CursorFlow {
       
       // Position cursor
       CursorFlowUI.moveCursorToElement(
-        targetElement, 
-        this.cursorElement, 
+        targetElement,
+        this.cursorElement,
         interaction
       );
       
@@ -796,7 +849,7 @@ export default class CursorFlow {
       CursorFlowUI.positionTextPopupNearCursor(this.cursorElement, textPopup);
       
       if (this.options.debug) {
-        console.log('Visual elements shown for element:', targetElement);
+        console.log('[CursorFlow] Visual elements shown for element:', targetElement);
       }
     }
   
@@ -1000,82 +1053,86 @@ export default class CursorFlow {
     }
   
     private setupElementInteractionTracking(element: HTMLElement, interaction: any) {
-      // Clean up previous listeners
-      this.removeExistingListeners();
-      
+      // Remove previous listener IF IT EXISTS AND IS DIFFERENT
+      this.removeExistingListeners(); // Call this first
+
       if (!element || !interaction) return;
-      
+
       if (this.options.debug) {
-        console.log('Setting up interaction tracking for element:', element);
-        console.log('Interaction data:', interaction);
+          console.log('[CursorFlow] Setting up interaction tracking for element:', element);
+          console.log('[CursorFlow] Interaction data for tracking:', interaction);
       }
-      
+
       // Store current interaction type
       this.currentInteractionType = interaction.action || 'click';
-      
-      // Create appropriate event listener based on interaction type
-      const eventType = this.getEventTypeForInteraction(this.currentInteractionType || 'click');
-      
-      if (!eventType) {
-        console.warn('Unknown interaction type:', this.currentInteractionType);
-        return;
+
+      if (!this.currentInteractionType) {
+          console.warn('[CursorFlow] No interaction type specified');
+          return;
       }
-      
+
+      const eventType = this.getEventTypeForInteraction(this.currentInteractionType);
+      if (!eventType) {
+          console.warn('[CursorFlow] Unknown interaction type for tracking:', this.currentInteractionType);
+          return;
+      }
+
       // Create handler
       this.currentListener = (event) => {
-        console.log(`${eventType} event triggered:`, event);
-        console.log('Target element:', event.target);
-        
-        // Validate interaction
-        if (this.validateInteraction(event, interaction)) {
-          console.log('Interaction validated successfully');
-          
-          // Get current step index
-          const currentStep = this.recording?.steps?.[this.state.currentStep];
-          const stepIndex = currentStep?.position || this.state.currentStep;
-          
-          console.log('Marking step completed:', stepIndex);
-          
-          // Mark step as completed
-          this.completeStep(stepIndex);
-          
-          // If this is a link that will navigate, let the navigation happen
-          // The handleNavigation method will pick up from there
-          const isNavigationLink = 
-            event.target instanceof HTMLAnchorElement && 
-            event.target.href && 
-            !event.target.getAttribute('target');
-          
-          if (isNavigationLink) {
-            console.log('Navigation link detected, letting natural navigation occur');
-            
-            // Save state immediately before navigation
-            StateManager.saveWithDebounce(this.state, true);
-            
-            // Clean up for navigation
-            this.hideVisualElements();
-            this.removeExistingListeners();
-            
-            // Don't call playNextStep, let the navigation handler take over
-            return;
+          this.debugLog(`${eventType} event triggered:`, event);
+          this.debugLog('Target element:', event.target);
+
+          // Check if the event originated from the expected element or its child
+          if (!element.contains(event.target as Node)) {
+              this.debugLog('Event target is outside the tracked element. Ignoring.');
+              return; // Ignore events bubbling up from outside the target
           }
-          
-          // Move to next step for non-navigation interactions
-          console.log('Moving to next step...');
-          this.playNextStep();
-        } else {
-          console.log('Interaction validation failed');
-        }
+
+          // Validate interaction (e.g., check input value if needed)
+          if (this.validateInteraction(event, interaction)) {
+              this.debugLog('Interaction validated successfully.');
+
+              const currentStep = this.sortedSteps[this.state.currentStep]; // Use sortedSteps
+              const stepIndex = currentStep?.position !== undefined ? currentStep.position : this.state.currentStep;
+
+              this.debugLog(`Marking step completed: Index=${this.state.currentStep}, Position=${stepIndex}`);
+              this.completeStep(stepIndex); // Pass the correct identifier
+
+               // If this interaction causes navigation (e.g., clicking a link/button that changes URL)
+              const isNavigationTrigger =
+                  (event.target instanceof HTMLAnchorElement && event.target.href && !event.target.target) ||
+                  (event.target instanceof HTMLButtonElement && event.target.type === 'submit') || // Form submission
+                  interaction.action === 'navigation'; // Explicit navigation step type?
+
+              const currentURL = window.location.href;
+              // Check if URL is likely to change after a microtask delay
+              queueMicrotask(() => {
+                  if (window.location.href !== currentURL || isNavigationTrigger) {
+                      this.debugLog('Navigation detected or expected after interaction. Letting handleNavigation take over.');
+                      StateManager.saveWithDebounce(this.state, true); // Save state immediately before potential navigation
+                      this.hideVisualElements(); // Clean up visuals
+                      this.removeExistingListeners(); // Remove listener before navigating
+                      // DO NOT CALL playNextStep here, handleNavigation will manage it.
+                  } else {
+                       // Only play next step if no navigation occurred
+                       this.debugLog('No navigation detected. Moving to next step...');
+                       this.playNextStep();
+                  }
+              });
+
+
+          } else {
+              this.debugLog('Interaction validation failed.');
+              // Optionally handle failed validation (e.g., show error)
+          }
       };
-      
+
       // Add debugging for event listener
-      console.log(`Adding ${eventType} listener to element:`, element);
-      
-      // TypeScript doesn't recognize that eventType can't be null here
-      element.addEventListener(eventType as string, this.currentListener);
-      
+      this.debugLog(`Adding ${eventType} listener to element:`, element);
+      element.addEventListener(eventType, this.currentListener, { capture: true }); // Use capture phase maybe? Test this.
+
       if (this.options.debug) {
-        console.log(`Set up ${eventType} listener for element:`, element);
+          console.log(`[CursorFlow] Set up ${eventType} listener for element:`, element);
       }
     }
   
@@ -1168,19 +1225,16 @@ export default class CursorFlow {
     private removeExistingListeners() {
       if (this.currentTargetElement && this.currentListener && this.currentInteractionType) {
         const eventType = this.getEventTypeForInteraction(this.currentInteractionType);
-        
         if (eventType) {
-          this.currentTargetElement.removeEventListener(eventType as string, this.currentListener);
-          
-          if (this.options.debug) {
-            console.log(`Removed ${eventType} listener from element:`, this.currentTargetElement);
-          }
+           // Ensure listener removal happens correctly, especially with capture phase
+           this.currentTargetElement.removeEventListener(eventType, this.currentListener, { capture: true });
+           this.debugLog(`Removed ${eventType} listener from element:`, this.currentTargetElement);
         }
       }
-      
-      // Reset tracking properties
+       // Reset tracking properties *after* removing
       this.currentListener = null;
       this.currentInteractionType = null;
+      // this.currentTargetElement = null; // Don't nullify currentTargetElement here, it's needed elsewhere
     }
     private handleInteractionError() {
       CursorFlowUI.showErrorNotification(
@@ -1196,30 +1250,30 @@ export default class CursorFlow {
     }
   
     // Add this method to find the next logical step based on completed steps
-    private findNextStep(): any {
-      if (!this.recording || this.sortedSteps.length === 0) {
-        console.log('findNextStep: No recording or steps available');
+    private findNextStep(): any | null {
+      if (!this.recording || !this.sortedSteps || this.sortedSteps.length === 0) {
+        this.debugLog('findNextStep: No recording or steps available.');
         return null;
       }
-      
-      // No need to sort again - use cached sorted steps
-      console.log('findNextStep: Looking for next step. Completed steps:', this.state.completedSteps);
-      
-      // Find first uncompleted step
-      for (const step of this.sortedSteps) {
-        const stepIndex = step.position || this.sortedSteps.indexOf(step);
-        
-        if (!this.state.completedSteps.includes(stepIndex)) {
-          console.log('findNextStep: Found next uncompleted step:', {
-            position: stepIndex,
-            step
-          });
-          return step;
-        }
+
+      this.debugLog('findNextStep: Looking for next step. Completed steps:', this.state.completedSteps);
+
+      // Find the first step in sortedSteps whose position is not in completedSteps
+      const nextStep = this.sortedSteps.find(step => {
+         const stepId = step.position !== undefined ? step.position : this.sortedSteps.indexOf(step);
+         return !this.state.completedSteps.includes(stepId);
+      });
+
+
+      if (nextStep) {
+         const stepId = nextStep.position !== undefined ? nextStep.position : this.sortedSteps.indexOf(nextStep);
+         this.debugLog('findNextStep: Found next uncompleted step:', { position: stepId, step: nextStep.annotation || nextStep.interaction?.text });
+         return nextStep;
       }
-      
-      console.log('findNextStep: All steps are completed');
-      return null;
+
+
+      this.debugLog('findNextStep: All steps appear to be completed.');
+      return null; // All steps are completed
     }
   
     // Add a new method for guide completion
@@ -1265,89 +1319,54 @@ export default class CursorFlow {
       }
     }
 
-    private completeStep(stepIndex: number) {
-      // Don't add duplicates
-      if (!this.state.completedSteps.includes(stepIndex)) {
-        this.state.completedSteps.push(stepIndex);
-        
-        // Use debounced save instead of immediate save
-        StateManager.saveWithDebounce(this.state);
-        
+    private completeStep(stepIdentifier: number) { // Use position or index
+      if (!this.state.completedSteps.includes(stepIdentifier)) {
+        this.state.completedSteps.push(stepIdentifier);
+        StateManager.saveWithDebounce(this.state); // Debounced save
         if (this.options.debug) {
-          console.log('Step completed:', stepIndex);
-          console.log('Completed steps:', this.state.completedSteps);
+          this.debugLog(`Step completed (ID/Pos: ${stepIdentifier}). Completed: [${this.state.completedSteps.join(', ')}]`);
         }
+      } else {
+         if (this.options.debug) {
+            this.debugLog(`Step (ID/Pos: ${stepIdentifier}) was already marked completed.`);
+         }
       }
     }
 
+
     private async playNextStep() {
-      if (!this.state.isPlaying) return false;
-      
-      // Hide current visual elements first, but keep the cursor and notifications
-      CursorFlowUI.cleanupAllUI(true, true);
-      
-      // Remove existing listeners
-      this.removeExistingListeners();
-      
-      // Find the current step
-      let currentStepIndex = this.state.currentStep;
-      let currentStepPosition = 0;
-      
-      if (this.recording && this.recording.steps && this.recording.steps.length > 0) {
-        // If this is position-based, get the current position
-        if (this.recording.steps[0].position !== undefined) {
-          // Use cached sortedSteps instead of resorting
-          
-          // Find current step by index
-          const currentStep = this.sortedSteps[currentStepIndex];
-          if (currentStep) {
-            currentStepPosition = currentStep.position;
-          }
-          
-          // Find next step using the cached sortedSteps
-          let nextPosition = Number.MAX_SAFE_INTEGER;
-          let nextStep = null;
-          
-          for (const step of this.sortedSteps) {
-            const stepPos = step.position || 0;
-            // Find the next position that's greater than current but smaller than any we've found so far
-            if (stepPos > currentStepPosition && stepPos < nextPosition && 
-                !this.state.completedSteps.includes(stepPos)) {
-              nextPosition = stepPos;
-              nextStep = step;
+        if (!this.state.isPlaying) return false;
+
+        this.debugLog('playNextStep: Attempting to move to the next step.');
+
+        // Hide current visual elements first, but keep the cursor and notifications
+        this.hideVisualElements(); // Use the refactored hide method if available, or CursorFlowUI.cleanupAllUI(true, true);
+
+        // Remove existing listeners *before* finding the next step's element
+        this.removeExistingListeners();
+
+        const nextStep = this.findNextStep();
+
+        if (nextStep) {
+            // Update currentStep index in the state to match the found next step
+            const nextStepIndex = this.sortedSteps.findIndex(step => step === nextStep);
+            if (nextStepIndex !== -1) {
+                 this.state.currentStep = nextStepIndex;
+                 this.debugLog(`playNextStep: Found next step at index ${this.state.currentStep}. Saving state and playing.`);
+                 StateManager.saveWithDebounce(this.state); // Save the updated currentStep index
+
+                 await this.playCurrentStep(); // Play the step we just found
+                 return true;
+            } else {
+                console.error('[CursorFlow] Could not find index for the identified next step. State might be corrupted.');
+                 this.completeGuide(); // Fail safe to completion
+                 return false;
             }
-          }
-          
-          if (nextStep) {
-            // Update current step in state
-            this.state.currentStep = this.sortedSteps.indexOf(nextStep);
-            
-            // Use debounced save instead of immediate save
-            StateManager.saveWithDebounce(this.state);
-            
-            // Play the new current step
-            await this.playCurrentStep();
-            return true;
-          }
         } else {
-          // Simple index-based navigation
-          this.state.currentStep++;
-          
-          // Check if we're at the end
-          if (this.state.currentStep >= this.recording.steps.length) {
-            // Guide completed - call completeGuide instead of handling completion here
+            // No next step found, assume guide completion
+            this.debugLog('playNextStep: No next step found by findNextStep(). Completing guide.');
             this.completeGuide();
             return false;
-          }
-          
-          StateManager.saveWithDebounce(this.state);  // Use debounced save here too
-          await this.playCurrentStep();
-          return true;
         }
-      }
-      
-      // If we get here, there are no more steps
-      this.completeGuide();
-      return false;
     }
   }
