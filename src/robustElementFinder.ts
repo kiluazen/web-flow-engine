@@ -40,120 +40,110 @@ export class RobustElementFinder {
         let attempt = 0;
 
         while (attempt <= this.MAX_RETRIES) {
-            const candidates = new Map<HTMLElement, string>(); // Use Map to store unique elements and finding strategy
+            const candidates = new Map<HTMLElement, string>();
 
-            // REMOVED: if (this.debugMode) around attempt log
             console.log(`[RobustFinder] Attempt ${attempt + 1}/${this.MAX_RETRIES + 1} - Starting search.`);
 
-            // 0. Define Search Contexts
+            // 0. Define Search Contexts (MODIFIED: gets potentially deeper root)
             const searchRoots = this.getSearchRoots();
 
             // --- Strategy 1: Escaped ID ---
             if (elementData.id) {
                 try {
                     const escapedIdSelector = `#${CSS.escape(elementData.id)}`;
-                    // REMOVED: if (this.debugMode)
                     console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 1: Trying escaped ID: ${escapedIdSelector}`);
-                    this.findElements(searchRoots, escapedIdSelector, candidates, 'Escaped ID');
+                    this.findElements(searchRoots, escapedIdSelector, candidates, 'Escaped ID'); // Pass refined roots
                 } catch (e) {
-                    // REMOVED: if (this.debugMode)
                     console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 1 Error (ID: ${elementData.id}):`, e);
                 }
             }
 
             // --- Strategy 2: Escaped CSS Selector ---
-            if (elementData.cssSelector && elementData.cssSelector !== elementData.id) {
+             if (elementData.cssSelector && elementData.cssSelector !== elementData.id) {
                  if (!elementData.cssSelector.includes(':contains(')) {
                     try {
                         const potentiallyEscapedSelector = this.tryEscapeSelector(elementData.cssSelector);
-                        // REMOVED: if (this.debugMode)
                         console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2: Trying escaped CSS: ${potentiallyEscapedSelector}`);
-                        this.findElements(searchRoots, potentiallyEscapedSelector, candidates, 'Escaped CSS');
+                        this.findElements(searchRoots, potentiallyEscapedSelector, candidates, 'Escaped CSS'); // Pass refined roots
                     } catch (e) {
-                        // REMOVED: if (this.debugMode)
                         console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2 Error (CSS: ${elementData.cssSelector}):`, e);
                     }
                 } else {
-                     // REMOVED: if (this.debugMode)
                      console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2 Skipping: Invalid ':contains' in selector: ${elementData.cssSelector}`);
                 }
             }
 
-            // --- Strategy 3: Attributes ---
+             // --- Strategy 3: Attributes ---
             const attributes = this.parseAttributes(elementData.attributes);
             if (attributes) {
                 const attrSelectors = this.buildAttributeSelectors(elementData.tagName, attributes);
-                 // REMOVED: if (this.debugMode)
                  console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 3: Trying Attributes:`, attrSelectors);
                 for (const selector of attrSelectors) {
                      try {
-                        this.findElements(searchRoots, selector, candidates, 'Attributes');
+                        this.findElements(searchRoots, selector, candidates, 'Attributes'); // Pass refined roots
                      } catch (e) {
-                        // REMOVED: if (this.debugMode)
                         console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 3 Error (Attribute Selector: ${selector}):`, e);
                      }
                 }
             }
 
-            // --- Strategy 4: Text Content ---
+             // --- Strategy 4: Text Content ---
             if (targetText) {
-                 const tagToSearch = elementData.tagName || '*'; // Default to '*' if tagName missing
-                // REMOVED: if (this.debugMode)
-                console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 4: Trying Tag (${tagToSearch}) + Text: "${targetText}"`);
-                 this.findElements(searchRoots, tagToSearch, candidates, 'Tag + Text', targetText);
+                 const tagToSearch = elementData.tagName || '*';
+                 console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 4: Trying Tag (${tagToSearch}) + Text: "${targetText}"`);
+                 this.findElements(searchRoots, tagToSearch, candidates, 'Tag + Text', targetText); // Pass refined roots
             }
 
+
             // --- Strategy 5: XPath ---
-            const xpath = this.buildXPath(elementData.path);
+            const xpath = this.buildXPath(elementData.path); // Uses updated buildXPath
             if (xpath) {
-                 // REMOVED: if (this.debugMode)
                  console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 5: Trying XPath: ${xpath}`);
                  try {
-                    const result = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_ITERATOR_TYPE, null);
-                    let node = result.iterateNext();
                     let xpathFoundCount = 0;
-                    while (node) {
-                        if (node instanceof HTMLElement) {
-                            // Also apply text filter here if needed, as XPath might be less specific
-                            const passesTextCheck = !targetText || this.fuzzyTextMatch(node, targetText);
-                            if (passesTextCheck && this.isElementPotentiallyVisible(node)) {
-                                if (!candidates.has(node)) {
-                                     candidates.set(node, 'XPath');
-                                     xpathFoundCount++;
+                    // MODIFIED: Evaluate XPath within each search root's context
+                    for (const { name, root } of searchRoots) {
+                        console.log(`[RobustFinder]   Evaluating XPath in root "${name}" context:`, root);
+                        // Use the specific root as the context node
+                        const result = document.evaluate(xpath, root, null, XPathResult.ORDERED_NODE_ITERATOR_TYPE, null);
+                        let node = result.iterateNext();
+                        while (node) {
+                            if (node instanceof HTMLElement) {
+                                const passesTextCheck = !targetText || this.fuzzyTextMatch(node, targetText);
+                                if (passesTextCheck && this.isElementPotentiallyVisible(node)) {
+                                    if (!candidates.has(node)) {
+                                         candidates.set(node, `XPath (in ${name})`); // Note context
+                                         xpathFoundCount++;
+                                    }
+                                } else {
+                                    // Only log skipped if debug mode is on maybe? Reduces noise.
+                                    if(this.debugMode) console.log(`[RobustFinder]   XPath result in ${name} ${node.tagName}#${node.id} skipped (Visible: ${this.isElementPotentiallyVisible(node)}, TextMatch: ${passesTextCheck})`);
                                 }
-                            } else {
-                                // REMOVED: if (this.debugMode)
-                                console.log(`[RobustFinder]   XPath result ${node.tagName}#${node.id} skipped (Visible: ${this.isElementPotentiallyVisible(node)}, TextMatch: ${passesTextCheck})`);
                             }
+                            node = result.iterateNext();
                         }
-                        node = result.iterateNext();
                     }
-                    // REMOVED: if (this.debugMode)
                     if (xpathFoundCount > 0) console.log(`[RobustFinder]   XPath added ${xpathFoundCount} new candidate(s).`);
                  } catch (e) {
-                     // REMOVED: if (this.debugMode)
                      console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 5 Error (XPath: ${xpath}):`, e);
                  }
             }
 
-            // --- Check Results and Retry Logic ---
-            if (candidates.size > 0) {
-                // REMOVED: if (this.debugMode)
-                console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED. Found ${candidates.size} unique candidate(s):`);
-                candidates.forEach((strategy, element) => {
-                   console.log(`  - Candidate: ${element.tagName}#${element.id} (Found via: ${strategy})`);
-                });
-                return Array.from(candidates.keys()); // Success
-            }
+             // --- Check Results and Retry Logic ---
+             if (candidates.size > 0) {
+                 console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED. Found ${candidates.size} unique candidate(s):`);
+                 candidates.forEach((strategy, element) => {
+                    console.log(`  - Candidate: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`); // Improved log
+                 });
+                 return Array.from(candidates.keys()); // Success
+             }
 
             // If no candidates found and retries remain, wait and retry
             attempt++;
             if (attempt <= this.MAX_RETRIES) {
-                // REMOVED: if (this.debugMode)
                 console.log(`[RobustFinder] Attempt ${attempt} FAILED. No candidates found. Retrying in ${this.RETRY_DELAY_MS}ms...`);
                 await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_MS));
             } else {
-                 // REMOVED: if (this.debugMode)
                  console.log(`[RobustFinder] All ${this.MAX_RETRIES + 1} attempts FAILED. No candidates found.`);
             }
         } // End while loop
@@ -166,45 +156,60 @@ export class RobustElementFinder {
 
     /**
      * Defines search areas, prioritizing detected modals/dialogs before the main document.
-     * Inspired by build-dom-tree.js iframe/shadow DOM handling.
+     * MODIFIED: Attempts to find a more specific content container within the detected overlay.
      */
     private static getSearchRoots(): { name: string; root: Document | Element }[] {
         const roots: { name: string; root: Document | Element }[] = [];
         let activeOverlay: HTMLElement | null = null;
+        let overlayContentRoot: Element | null = null; // Added
 
         try {
+            // Query for potential overlay roots
             const potentialOverlays = Array.from(document.querySelectorAll(
-                // Keep standard roles & generic classes
                 '[role="dialog"], [role="alertdialog"], .modal, .dialog, .popup, ' +
-                // Add Mantine specific classes (common patterns)
-                '.mantine-Modal-root, .mantine-Modal-modal, .mantine-Popover-dropdown'
+                 '.mantine-Modal-root, .mantine-Drawer-root, .mantine-Popover-dropdown' // Added Drawer
             )) as HTMLElement[];
 
-            // Filter for visibility using only CSS properties (more reliable for containers)
+            // Filter for visibility
             const visibleOverlays = potentialOverlays.filter(el => {
                 try {
                     const style = window.getComputedStyle(el);
-                    return style.display !== 'none' && style.visibility !== 'hidden';
-                } catch (e) {
-                    // Ignore errors getting style (e.g., element detached)
-                    return false;
-                }
+                    // Check display, visibility, and opacity (more robust)
+                    return style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity || '1') > 0;
+                } catch (e) { return false; }
             });
 
             if (visibleOverlays.length > 0) {
+                // Sort by z-index to find the topmost one
                 visibleOverlays.sort((a, b) => {
                     const zIndexA = parseInt(window.getComputedStyle(a).zIndex) || 0;
                     const zIndexB = parseInt(window.getComputedStyle(b).zIndex) || 0;
-                    return zIndexB - zIndexA; // Highest z-index first
+                    return zIndexB - zIndexA;
                 });
                 activeOverlay = visibleOverlays[0];
                 console.log(`[RobustFinder] Detected active overlay element (highest z-index):`, activeOverlay);
-                roots.push({ name: 'Active Overlay', root: activeOverlay });
+
+                // --- NEW: Try to find a specific content container inside ---
+                overlayContentRoot = activeOverlay.querySelector(
+                    // Common content containers (add more if needed)
+                    '.mantine-Modal-content, .mantine-Drawer-content, .mantine-Dialog-root, .modal-content, .dialog-content, [role="document"]'
+                );
+
+                if (overlayContentRoot) {
+                    console.log(`[RobustFinder]   Using specific content root within overlay:`, overlayContentRoot);
+                    roots.push({ name: 'Active Overlay Content', root: overlayContentRoot });
+                } else {
+                    // Fallback: Use the detected overlay root itself
+                    console.log(`[RobustFinder]   No specific content root found, using overlay root itself.`);
+                    roots.push({ name: 'Active Overlay Root', root: activeOverlay });
+                }
+                // --- END NEW ---
             }
         } catch (e) {
             console.warn('[RobustFinder] Error detecting overlay elements:', e);
         }
 
+        // Always add the main document as the last resort
         roots.push({ name: 'Document', root: document });
         console.log('[RobustFinder] Search roots determined:', roots.map(r => r.name));
         return roots;
@@ -218,51 +223,43 @@ export class RobustElementFinder {
         strategyName: string,
         textFilter?: string
     ): void {
-        // console.log(`[RobustFinder-VERIFY] findElements called with selector: "${selector}", strategy: ${strategyName}`); // Keep commented out unless deep debugging
-        
         let strategyFoundCount = 0;
         for (const { name, root } of roots) {
             try {
-                const foundElements = root.querySelectorAll(selector);
-                // console.log(`[RobustFinder-VERIFY] ${strategyName} in ${name}: Raw selector "${selector}" found: ${foundElements.length} element(s)`); // Keep commented out
-                
-                if (foundElements.length > 0) {
-                     console.log(`[RobustFinder]   ${strategyName} in ${name}: Selector "${selector}" initially found ${foundElements.length} element(s).`);
-                }
+                 // Log the context root being searched
+                 if(this.debugMode) console.log(`[RobustFinder]   Searching in root "${name}" context:`, root);
+                 const foundElements = root.querySelectorAll(selector);
 
-                foundElements.forEach(element => {
+                 if (foundElements.length > 0) {
+                     console.log(`[RobustFinder]   ${strategyName} in ${name}: Selector "${selector}" initially found ${foundElements.length} element(s).`);
+                 }
+
+                 foundElements.forEach(element => {
                     if (element instanceof HTMLElement) {
                         const isVisible = this.isElementPotentiallyVisible(element);
                         const passesTextCheck = !textFilter || this.fuzzyTextMatch(element, textFilter);
 
-                        // REMOVED very verbose per-element check log
-                        // const eleTextContent = (element.textContent || "").trim();
-                        // const eleInnerText = (element.innerText || "").trim();
-                        // console.log(`[RobustFinder-VERIFY] ${strategyName} checking: <${element.tagName.toLowerCase()}...`);
-
                         if (passesTextCheck && isVisible) {
                             if (!candidates.has(element)) {
-                                candidates.set(element, strategyName);
+                                candidates.set(element, `${strategyName} (in ${name})`); // Note context
                                 strategyFoundCount++;
-                                // Keep the log for *added* candidates
                                 console.log(`[RobustFinder]     + Added candidate from ${name} via ${strategyName} (Visible: ${isVisible}, TextMatch: ${passesTextCheck}):`, element.tagName, element.id);
                             }
-                        } 
-                        // REMOVED per-element skip log
-                        // else {
-                        //     let skipReason = '';
-                        //     if (!isVisible) skipReason += 'Not Visible ';
-                        //     if (!passesTextCheck) skipReason += 'Text Mismatch ';
-                        //     console.log(`[RobustFinder]     - Skipped candidate from ${name} via ${strategyName} (Reason: ${skipReason.trim()}):`, element.tagName, element.id);
-                        // }
+                        }
+                        // Optional: Log skipped elements only in debug mode
+                        // else if (this.debugMode) { ... }
                     }
                 });
+
             } catch (e) {
-                 if (!selector.includes(':contains(')) { 
+                // Be less noisy about standard invalid selectors unless debugging
+                 if (!(e instanceof DOMException && e.message.includes("is not a valid selector"))) {
                      console.warn(`[RobustFinder] Error executing selector "${selector}" in ${name} via ${strategyName}:`, e);
+                 } else if (this.debugMode) {
+                     console.log(`[RobustFinder] Info: Selector "${selector}" is invalid for querySelectorAll in ${name}.`);
                  }
             }
-        } 
+        }
         if (strategyFoundCount > 0) {
             console.log(`[RobustFinder]   ${strategyName} added ${strategyFoundCount} new candidate(s) to the list.`);
         }
@@ -376,38 +373,44 @@ export class RobustElementFinder {
     }
 
      /** Reconstruct XPath from path segments */
-    private static buildXPath(pathSegments: string[] | undefined): string | null {
+     private static buildXPath(pathSegments: string[] | undefined): string | null {
         if (!pathSegments || pathSegments.length === 0) return null;
 
-        // Check if the first segment looks like an ID selector (e.g., #some-id)
         if (pathSegments[0].startsWith('#')) {
-            const elementId = pathSegments[0].substring(1); // Remove the leading #
-            // Construct an XPath using the id() function for the first part
-            // and join the rest, assuming they are relative steps
+            const elementId = pathSegments[0].substring(1);
             const remainingPath = pathSegments.slice(1).join('/');
-            // Ensure remaining path starts with / if not empty
             const relativePath = remainingPath ? `/${remainingPath}` : '';
-            // Use //* to find the element with the ID anywhere, then append relative path
-            // Or use id() function which is more direct if supported and unique
-            // Using id() is generally better if the ID is unique within the document.
-             try {
-                // Attempt to use the id() function
-                return `id('${CSS.escape(elementId)}')${relativePath}`;
-             } catch (e) {
-                // Fallback if id() construction fails (e.g., complex IDs)
-                 console.warn(`[RobustFinder] Could not construct XPath with id() for ${elementId}. Falling back.`);
-                 return `//*[@id='${CSS.escape(elementId)}']${relativePath}`;
-             }
+
+            // --- MODIFIED: Prioritize //*[@id=...] ---
+            try {
+                const escapedId = CSS.escape(elementId); // Escape for attribute value context
+                // Ensure quotes within the ID itself are handled if necessary.
+                // If IDs can contain single quotes, this might need adjustment.
+                return `//*[@id='${escapedId}']${relativePath}`;
+            } catch (e) {
+                 console.warn(`[RobustFinder] Could not construct XPath with [@id='...'] for ${elementId}. Error:`, e);
+                 // Fallback to trying id() function
+                 try {
+                     // Escape differently for string literal context if needed, though CSS.escape might suffice
+                     return `id('${CSS.escape(elementId)}')${relativePath}`;
+                 } catch (e2) {
+                      console.warn(`[RobustFinder] Could not construct XPath with id() either for ${elementId}. Error:`, e2);
+                      return null;
+                 }
+            }
+            // --- END MODIFIED ---
 
         } else {
             // Original logic for non-ID starting paths
             let xpath = pathSegments.join('/');
-            if (!xpath.startsWith('/') && !xpath.startsWith('(')) {
-                 if (!/^(html|body)/i.test(pathSegments[0])) {
-                     xpath = '//' + xpath;
-                 }
+            // Check if it needs to be made relative more carefully
+            if (!xpath.startsWith('/') && !xpath.startsWith('(') && !xpath.startsWith('.') && !/^(html|body)/i.test(pathSegments[0])) {
+                 xpath = '//' + xpath;
             }
+            // Clean up double slashes
             xpath = xpath.replace(/\/\/\//g, '//');
+            // Ensure it doesn't start with /// if the original path was just /
+            xpath = xpath.replace(/^\/\/\//, '//');
             return xpath;
         }
     }
