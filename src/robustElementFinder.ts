@@ -94,8 +94,41 @@ export class RobustElementFinder {
                  this.findElements(searchRoots, tagToSearch, candidates, 'Tag + Text', targetText); // Pass refined roots
             }
 
+            // New simple XPath strategy
+            if (targetText) {
+                // Add simple XPath contains() text search for reliable button finding
+                console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 4b: Trying text-based XPath`);
+                
+                const textXPath = `//button[contains(text(), "${targetText}")] | //button[contains(., "${targetText}")]`;
+                try {
+                    for (const { name, root } of searchRoots) {
+                        // Only evaluate in modal contexts first to avoid document fallback
+                        if (name.includes('Overlay') || name.includes('Modal')) {
+                            console.log(`[RobustFinder] Evaluating text XPath in ${name}`);
+                            const result = document.evaluate(textXPath, root, null, XPathResult.ORDERED_NODE_ITERATOR_TYPE, null);
+                            let node = result.iterateNext();
+                            while (node) {
+                                if (node instanceof HTMLElement) {
+                                    const passesTextCheck = !targetText || this.fuzzyTextMatch(node, targetText);
+                                    if (passesTextCheck && this.isElementPotentiallyVisible(node)) {
+                                        if (!candidates.has(node)) {
+                                             candidates.set(node, `Text-based XPath (in ${name})`); // Note context
+                                        }
+                                    } else {
+                                        // Only log skipped if debug mode is on maybe? Reduces noise.
+                                        if(this.debugMode) console.log(`[RobustFinder]   Text XPath result in ${name} ${node.tagName}#${node.id} skipped (Visible: ${this.isElementPotentiallyVisible(node)}, TextMatch: ${passesTextCheck})`);
+                                    }
+                                }
+                                node = result.iterateNext();
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`[RobustFinder] Text XPath error:`, e);
+                }
+            }
 
-            // --- Strategy 5: XPath ---
+             // --- Strategy 5: XPath ---
             const xpath = this.buildXPath(elementData.path); // Uses updated buildXPath
             if (xpath) {
                  console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 5: Trying XPath: ${xpath}`);
@@ -249,7 +282,19 @@ export class RobustElementFinder {
         textFilter?: string
     ): void {
         let strategyFoundCount = 0;
-        for (const { name, root } of roots) {
+        
+        // First search in all modal/overlay containers
+        const modalRoots = roots.filter(r => 
+            r.name.includes('Modal') || r.name.includes('Overlay'));
+            
+        // Then search in document only if no results found in modals
+        const documentRoots = roots.filter(r => 
+            !r.name.includes('Modal') && !r.name.includes('Overlay'));
+            
+        // Prioritize modal searching before falling back to document
+        const orderedRoots = [...modalRoots, ...documentRoots];
+        
+        for (const { name, root } of orderedRoots) {
             try {
                  // Log the context root being searched
                  if(this.debugMode) console.log(`[RobustFinder]   Searching in root "${name}" context:`, root);
@@ -411,9 +456,9 @@ export class RobustElementFinder {
                 const escapedId = CSS.escape(elementId); // Escape for attribute value context
                 // Ensure quotes within the ID itself are handled if necessary.
                 // If IDs can contain single quotes, this might need adjustment.
-                return `//*[@id='${escapedId}']${relativePath}`;
+                return `//*[@id="${escapedId}"]${relativePath}`;
             } catch (e) {
-                 console.warn(`[RobustFinder] Could not construct XPath with [@id='...'] for ${elementId}. Error:`, e);
+                 console.warn(`[RobustFinder] Could not construct XPath with [@id="${escapedId}"] for ${elementId}. Error:`, e);
                  // Fallback to trying id() function
                  try {
                      // Escape differently for string literal context if needed, though CSS.escape might suffice
