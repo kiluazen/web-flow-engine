@@ -208,72 +208,57 @@ export class SelectiveDomAnalyzer {
             return false;
         }
 
-        const pointsToCheck = [
-            { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, // Center
-            { x: rect.left + 1, y: rect.top + 1 },
-            { x: rect.right - 1, y: rect.top + 1 },
-            { x: rect.left + 1, y: rect.bottom - 1 },
-            { x: rect.right - 1, y: rect.bottom - 1 }
-        ];
-        if (rect.width < 5 || rect.height < 5) {
-            pointsToCheck.splice(1);
-        }
+        // MODIFIED: Check only the center point
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+
+        const checkX = Math.max(0, Math.min(centerX, window.innerWidth - 1));
+        const checkY = Math.max(0, Math.min(centerY, window.innerHeight - 1));
 
         let doc = element.ownerDocument;
         let rootNode: Node | ShadowRoot = element.getRootNode();
 
-        for (const point of pointsToCheck) {
-            const checkX = Math.max(0, Math.min(point.x, window.innerWidth - 1));
-            const checkY = Math.max(0, Math.min(point.y, window.innerHeight - 1));
-
-            try {
-                let topElementAtPoint: Element | null = null;
-                if (rootNode instanceof ShadowRoot) {
-                    topElementAtPoint = rootNode.elementFromPoint(checkX, checkY);
-                } else {
-                    topElementAtPoint = doc.elementFromPoint(checkX, checkY);
-                }
-
-                if (!topElementAtPoint) {
-                     console.log(`[SelectiveDomAnalyzer] elementFromPoint(${checkX}, ${checkY}) returned null.`);
-                     continue;
-                }
-
-                // MODIFIED CHECK:
-                // Check if the found element is the target element itself,
-                // OR a descendant of the target element,
-                // OR an ancestor of the target element.
-                let current: Element | null = topElementAtPoint;
-                let isRelated = false;
-                while (current) {
-                    if (current === element) {
-                        isRelated = true; // Found element is the target or a descendant
-                        break;
-                    }
-                    current = current.parentElement;
-                }
-                // If not target or descendant, check if target is a descendant of the found element (i.e., found element is an ancestor)
-                if (!isRelated && element.contains(topElementAtPoint)) {
-                     isRelated = true; // Found element is an ancestor
-                }
-
-                if (!isRelated) {
-                    console.log(`[SelectiveDomAnalyzer] Occlusion detected at point (${checkX}, ${checkY}). Target ${element.tagName}#${element.id} is not related to the top element ${topElementAtPoint.tagName}#${topElementAtPoint.id}`);
-                    return false; // Obscured by an unrelated element
-                } else {
-                    // Log success for this point if needed for debugging
-                    // console.log(`[SelectiveDomAnalyzer] Point (${checkX}, ${checkY}) check passed. Top element ${topElementAtPoint.tagName}#${topElementAtPoint.id} is related to target ${element.tagName}#${element.id}`);
-                }
-                // If this point is okay (related), continue checking other points
-
-            } catch (e) {
-                 console.warn('[SelectiveDomAnalyzer] Error during elementFromPoint check:', e);
-                 return false;
+        try {
+            let topElementAtPoint: Element | null = null;
+            if (rootNode instanceof ShadowRoot) {
+                topElementAtPoint = rootNode.elementFromPoint(checkX, checkY);
+            } else {
+                topElementAtPoint = doc.elementFromPoint(checkX, checkY);
             }
-        }
 
-        // If all checked points resolve to the element, its descendant, or its ancestor, consider it not obscured.
-        return true;
+            if (!topElementAtPoint) {
+                console.log(`[SelectiveDomAnalyzer] elementFromPoint (center: ${checkX}, ${checkY}) returned null.`);
+                // Consider it potentially obscured if center point check fails
+                return false;
+            }
+
+            // Check if the found element is the target element, a descendant, or an ancestor.
+            let current: Element | null = topElementAtPoint;
+            let isRelated = false;
+            while (current) {
+                if (current === element) {
+                    isRelated = true;
+                    break;
+                }
+                current = current.parentElement;
+            }
+            if (!isRelated && element.contains(topElementAtPoint)) {
+                isRelated = true;
+            }
+
+            if (!isRelated) {
+                console.log(`[SelectiveDomAnalyzer] Occlusion detected at center point (${checkX}, ${checkY}). Target ${element.tagName}#${element.id} is not related to the top element ${topElementAtPoint.tagName}#${topElementAtPoint.id}`);
+                return false; // Obscured by an unrelated element
+            } else {
+                // Center point check passed
+                console.log(`[SelectiveDomAnalyzer] Center point (${checkX}, ${checkY}) check passed. Top element ${topElementAtPoint.tagName}#${topElementAtPoint.id} is related to target ${element.tagName}#${element.id}`);
+                return true;
+            }
+
+        } catch (e) {
+            console.warn('[SelectiveDomAnalyzer] Error during elementFromPoint check:', e);
+            return false; // Conservative failure on error
+        }
     }
 
     // --- Text Match Helper ---
