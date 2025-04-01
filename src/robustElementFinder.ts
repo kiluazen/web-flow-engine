@@ -16,10 +16,12 @@ export class RobustElementFinder {
 
     private static debugMode = false;
     private static readonly MAX_RETRIES = 3; // Number of retry attempts
-    private static readonly RETRY_DELAY_MS = 100; // Delay between retries
+    private static readonly RETRY_DELAY_MS = 500; // UPDATED: Increased from 100ms to 500ms
 
     static setDebugMode(enabled: boolean): void {
         this.debugMode = enabled;
+        // Unconditional log to verify debug mode is set
+        console.log(`[RobustFinder-VERIFY] Debug mode ${enabled ? 'ENABLED' : 'DISABLED'}`);
     }
 
     /**
@@ -29,6 +31,12 @@ export class RobustElementFinder {
      * @returns An array of plausible HTMLElement candidates.
      */
     static async findCandidates(interaction: InteractionData): Promise<HTMLElement[]> {
+        // ADDED: Unconditional verification logs to confirm function is called
+        console.log(`[RobustFinder-VERIFY] findCandidates CALLED - Debug mode is: ${this.debugMode}`);
+        console.log(`[RobustFinder-VERIFY] Interaction data type:`, 
+                   typeof interaction, 
+                   interaction ? `Has element data: ${!!interaction.element}` : 'No interaction');
+        
         const elementData = interaction.element || {};
         const targetText = interaction.text || elementData.textContent;
         let attempt = 0;
@@ -170,10 +178,16 @@ export class RobustElementFinder {
         strategyName: string,
         textFilter?: string
     ): void {
+        // ADDED: Unconditional log to confirm findElements is called
+        console.log(`[RobustFinder-VERIFY] findElements called with selector: "${selector}", strategy: ${strategyName}`);
+        
         let strategyFoundCount = 0;
         for (const { name, root } of roots) {
             try {
                 const foundElements = root.querySelectorAll(selector);
+                // Unconditional logging for ALL selector results
+                console.log(`[RobustFinder-VERIFY] ${strategyName} in ${name}: Raw selector "${selector}" found: ${foundElements.length} element(s)`);
+                
                 // Enhanced Logging: Log initial find count
                 if (this.debugMode && foundElements.length > 0) {
                      console.log(`[RobustFinder]   ${strategyName} in ${name}: Selector "${selector}" initially found ${foundElements.length} element(s).`);
@@ -184,6 +198,15 @@ export class RobustElementFinder {
                         // Enhanced Logging: Log visibility and text checks
                         const isVisible = this.isElementPotentiallyVisible(element);
                         const passesTextCheck = !textFilter || this.fuzzyTextMatch(element, textFilter);
+
+                        // ADDED: Unconditional log for ANY element found, showing tag, id, and check results
+                        const eleTextContent = (element.textContent || "").trim();
+                        const eleInnerText = (element.innerText || "").trim();
+                        console.log(`[RobustFinder-VERIFY] ${strategyName} checking: <${element.tagName.toLowerCase()}${element.id ? ' id="'+element.id+'"' : ''}> `+
+                                     `Visible: ${isVisible} [W:${element.offsetWidth},H:${element.offsetHeight},Rects:${element.getClientRects().length}], `+
+                                     `TextContent: "${eleTextContent.substring(0, 20)}${eleTextContent.length > 20 ? '...' : ''}" | `+
+                                     `InnerText: "${eleInnerText.substring(0, 20)}${eleInnerText.length > 20 ? '...' : ''}" | `+
+                                     `TextMatch: ${!textFilter ? 'N/A' : passesTextCheck}${textFilter ? ' (Target: "'+textFilter+'")' : ''}`);
 
                         if (passesTextCheck && isVisible) {
                             if (!candidates.has(element)) {
@@ -214,11 +237,37 @@ export class RobustElementFinder {
         }
     }
 
-    /** Lightweight visibility check */
+    /** Enhanced visibility check with detailed logging */
     private static isElementPotentiallyVisible(element: HTMLElement): boolean {
-        // Simpler than SelectiveDomAnalyzer's check - avoids computedStyle for speed
-        // Check offset dimensions OR client rects for elements that might not have standard layout (like SVG)
-        return (element.offsetWidth > 0 || element.offsetHeight > 0) || element.getClientRects().length > 0;
+        // Check dimensions - an element is potentially visible if it has:
+        // 1. Some width and height, OR
+        // 2. Some client rects (for inline elements like spans that might not have dimensions), OR
+        // 3. Children that might be visible (like divs containing only other elements)
+        
+        const hasDimensions = element.offsetWidth > 0 && element.offsetHeight > 0;
+        const hasClientRects = element.getClientRects().length > 0;
+        const hasChildren = element.children.length > 0;
+        
+        // Elements that are not visible might still be important containers
+        const isContainer = element.tagName === 'DIV' || element.tagName === 'SECTION' || 
+                           element.tagName === 'ARTICLE' || element.tagName === 'MAIN' ||
+                           element.tagName === 'HEADER' || element.tagName === 'FOOTER' || 
+                           element.tagName === 'NAV';
+        
+        // Check if the element has display:none or visibility:hidden
+        const style = window.getComputedStyle(element);
+        const isHiddenByCSS = style.display === 'none' || style.visibility === 'hidden' || 
+                              parseFloat(style.opacity || '1') === 0;
+        
+        // The element is potentially visible if it has dimensions, client rects, 
+        // or is a container with children (even if it itself has no dimensions)
+        const isVisible = hasDimensions || hasClientRects || (hasChildren && isContainer && !isHiddenByCSS);
+        
+        // Log results
+        console.log(`[RobustFinder-VERIFY] Visibility check: <${element.tagName.toLowerCase()}${element.id ? ' id="'+element.id+'"' : ''}> `+
+                   `Result: ${isVisible} (Dims:${hasDimensions}, Rects:${hasClientRects}, Children:${hasChildren}, Container:${isContainer}, Hidden:${isHiddenByCSS})`);
+        
+        return isVisible;
     }
 
     /** Parses the attributes string/object */
@@ -263,8 +312,11 @@ export class RobustElementFinder {
         return selectors;
     }
 
-    /** Basic text matching (includes innerText and value) */
+    /** Enhanced text matching with logging */
      private static fuzzyTextMatch(element: HTMLElement, targetText: string): boolean {
+        // Unconditional log to show function is being called
+        console.log(`[RobustFinder-VERIFY] fuzzyTextMatch called for "${targetText}"`);
+        
         const elementText = (element.textContent || "").trim();
         const elementInnerText = (element.innerText || "").trim(); // innerText respects layout/visibility
         const elementValue = (element as HTMLInputElement).value?.trim(); // Check input/textarea value
@@ -272,16 +324,21 @@ export class RobustElementFinder {
 
         // Exact match first (prefer innerText as it's closer to what user sees)
         if (elementInnerText === search || elementText === search || (elementValue && elementValue === search)) {
+            console.log(`[RobustFinder-VERIFY] Exact text match found`);
             return true;
         }
 
-        // Optional: Add case-insensitive or partial matching if needed, but be cautious
-        // const searchLower = search.toLowerCase();
-        // if (elementInnerText.toLowerCase().includes(searchLower) || elementText.toLowerCase().includes(searchLower)) {
-        //     return true; // Use includes for partial match
-        // }
+        // Add case-insensitive and partial matching 
+        const searchLower = search.toLowerCase();
+        if (elementInnerText.toLowerCase().includes(searchLower) || 
+            elementText.toLowerCase().includes(searchLower) ||
+            (elementValue && elementValue.toLowerCase().includes(searchLower))) {
+            console.log(`[RobustFinder-VERIFY] Fuzzy text match found`);
+            return true; // Use includes for partial match
+        }
 
-        return false; // Default to stricter matching
+        console.log(`[RobustFinder-VERIFY] No text match found`);
+        return false;
     }
 
     /** Attempts to escape a CSS selector - basic implementation */
