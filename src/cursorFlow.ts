@@ -653,6 +653,9 @@ export default class CursorFlow {
     }
     
     private async playCurrentStep() {
+      // ADDED: Log this.options.debug at the start of the function
+      console.log(`[DEBUG-VERIFY] playCurrentStep called. this.options.debug = ${this.options.debug}`);
+      
       // Hide thinking indicator when starting to play a step
       if (this.thinkingIndicator) {
         CursorFlowUI.hideThinkingIndicator(this.thinkingIndicator);

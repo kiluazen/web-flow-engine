@@ -32,10 +32,8 @@ export class RobustElementFinder {
      */
     static async findCandidates(interaction: InteractionData): Promise<HTMLElement[]> {
         // ADDED: Unconditional verification logs to confirm function is called
-        console.log(`[RobustFinder-VERIFY] findCandidates CALLED - Debug mode is: ${this.debugMode}`);
-        console.log(`[RobustFinder-VERIFY] Interaction data type:`, 
-                   typeof interaction, 
-                   interaction ? `Has element data: ${!!interaction.element}` : 'No interaction');
+        console.log(`[RobustFinder-VERIFY] findCandidates CALLED - Current debugMode setting: ${this.debugMode}`);
+        console.log(`[RobustFinder-VERIFY] Interaction data:`, interaction);
         
         const elementData = interaction.element || {};
         const targetText = interaction.text || elementData.textContent;
@@ -44,9 +42,8 @@ export class RobustElementFinder {
         while (attempt <= this.MAX_RETRIES) {
             const candidates = new Map<HTMLElement, string>(); // Use Map to store unique elements and finding strategy
 
-            if (this.debugMode) {
-                console.log(`[RobustFinder] Attempt ${attempt + 1}/${this.MAX_RETRIES + 1} - Starting search for interaction:`, interaction);
-            }
+            // REMOVED: if (this.debugMode) around attempt log
+            console.log(`[RobustFinder] Attempt ${attempt + 1}/${this.MAX_RETRIES + 1} - Starting search.`);
 
             // 0. Define Search Contexts
             const searchRoots = this.getSearchRoots();
@@ -55,10 +52,12 @@ export class RobustElementFinder {
             if (elementData.id) {
                 try {
                     const escapedIdSelector = `#${CSS.escape(elementData.id)}`;
-                    if (this.debugMode) console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 1: Trying escaped ID: ${escapedIdSelector}`);
+                    // REMOVED: if (this.debugMode)
+                    console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 1: Trying escaped ID: ${escapedIdSelector}`);
                     this.findElements(searchRoots, escapedIdSelector, candidates, 'Escaped ID');
                 } catch (e) {
-                    if (this.debugMode) console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 1 Error (ID: ${elementData.id}):`, e);
+                    // REMOVED: if (this.debugMode)
+                    console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 1 Error (ID: ${elementData.id}):`, e);
                 }
             }
 
@@ -67,13 +66,16 @@ export class RobustElementFinder {
                  if (!elementData.cssSelector.includes(':contains(')) {
                     try {
                         const potentiallyEscapedSelector = this.tryEscapeSelector(elementData.cssSelector);
-                        if (this.debugMode) console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2: Trying escaped CSS: ${potentiallyEscapedSelector}`);
+                        // REMOVED: if (this.debugMode)
+                        console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2: Trying escaped CSS: ${potentiallyEscapedSelector}`);
                         this.findElements(searchRoots, potentiallyEscapedSelector, candidates, 'Escaped CSS');
                     } catch (e) {
-                        if (this.debugMode) console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2 Error (CSS: ${elementData.cssSelector}):`, e);
+                        // REMOVED: if (this.debugMode)
+                        console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2 Error (CSS: ${elementData.cssSelector}):`, e);
                     }
                 } else {
-                     if (this.debugMode) console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2 Skipping: Invalid ':contains' in selector: ${elementData.cssSelector}`);
+                     // REMOVED: if (this.debugMode)
+                     console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2 Skipping: Invalid ':contains' in selector: ${elementData.cssSelector}`);
                 }
             }
 
@@ -81,12 +83,14 @@ export class RobustElementFinder {
             const attributes = this.parseAttributes(elementData.attributes);
             if (attributes) {
                 const attrSelectors = this.buildAttributeSelectors(elementData.tagName, attributes);
-                 if (this.debugMode) console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 3: Trying Attributes:`, attrSelectors);
+                 // REMOVED: if (this.debugMode)
+                 console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 3: Trying Attributes:`, attrSelectors);
                 for (const selector of attrSelectors) {
                      try {
                         this.findElements(searchRoots, selector, candidates, 'Attributes');
                      } catch (e) {
-                        if (this.debugMode) console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 3 Error (Attribute Selector: ${selector}):`, e);
+                        // REMOVED: if (this.debugMode)
+                        console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 3 Error (Attribute Selector: ${selector}):`, e);
                      }
                 }
             }
@@ -94,14 +98,16 @@ export class RobustElementFinder {
             // --- Strategy 4: Text Content ---
             if (targetText) {
                  const tagToSearch = elementData.tagName || '*'; // Default to '*' if tagName missing
-                if (this.debugMode) console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 4: Trying Tag (${tagToSearch}) + Text: "${targetText}"`);
+                // REMOVED: if (this.debugMode)
+                console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 4: Trying Tag (${tagToSearch}) + Text: "${targetText}"`);
                  this.findElements(searchRoots, tagToSearch, candidates, 'Tag + Text', targetText);
             }
 
             // --- Strategy 5: XPath ---
             const xpath = this.buildXPath(elementData.path);
             if (xpath) {
-                 if (this.debugMode) console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 5: Trying XPath: ${xpath}`);
+                 // REMOVED: if (this.debugMode)
+                 console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 5: Trying XPath: ${xpath}`);
                  try {
                     const result = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_ITERATOR_TYPE, null);
                     let node = result.iterateNext();
@@ -115,40 +121,40 @@ export class RobustElementFinder {
                                      candidates.set(node, 'XPath');
                                      xpathFoundCount++;
                                 }
-                            } else if (this.debugMode) {
-                                 console.log(`[RobustFinder]   XPath result ${node.tagName}#${node.id} skipped (Visible: ${this.isElementPotentiallyVisible(node)}, TextMatch: ${passesTextCheck})`);
+                            } else {
+                                // REMOVED: if (this.debugMode)
+                                console.log(`[RobustFinder]   XPath result ${node.tagName}#${node.id} skipped (Visible: ${this.isElementPotentiallyVisible(node)}, TextMatch: ${passesTextCheck})`);
                             }
                         }
                         node = result.iterateNext();
                     }
-                    if (this.debugMode && xpathFoundCount > 0) console.log(`[RobustFinder]   XPath added ${xpathFoundCount} new candidate(s).`);
+                    // REMOVED: if (this.debugMode)
+                    if (xpathFoundCount > 0) console.log(`[RobustFinder]   XPath added ${xpathFoundCount} new candidate(s).`);
                  } catch (e) {
-                     if (this.debugMode) console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 5 Error (XPath: ${xpath}):`, e);
+                     // REMOVED: if (this.debugMode)
+                     console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 5 Error (XPath: ${xpath}):`, e);
                  }
             }
 
             // --- Check Results and Retry Logic ---
             if (candidates.size > 0) {
-                if (this.debugMode) {
-                    console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED. Found ${candidates.size} unique candidate(s):`);
-                    candidates.forEach((strategy, element) => {
-                       console.log(`  - Candidate: ${element.tagName}#${element.id} (Found via: ${strategy})`);
-                    });
-                }
+                // REMOVED: if (this.debugMode)
+                console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED. Found ${candidates.size} unique candidate(s):`);
+                candidates.forEach((strategy, element) => {
+                   console.log(`  - Candidate: ${element.tagName}#${element.id} (Found via: ${strategy})`);
+                });
                 return Array.from(candidates.keys()); // Success
             }
 
             // If no candidates found and retries remain, wait and retry
             attempt++;
             if (attempt <= this.MAX_RETRIES) {
-                if (this.debugMode) {
-                    console.log(`[RobustFinder] Attempt ${attempt} FAILED. No candidates found. Retrying in ${this.RETRY_DELAY_MS}ms...`);
-                }
+                // REMOVED: if (this.debugMode)
+                console.log(`[RobustFinder] Attempt ${attempt} FAILED. No candidates found. Retrying in ${this.RETRY_DELAY_MS}ms...`);
                 await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_MS));
             } else {
-                 if (this.debugMode) {
-                     console.log(`[RobustFinder] All ${this.MAX_RETRIES + 1} attempts FAILED. No candidates found.`);
-                 }
+                 // REMOVED: if (this.debugMode)
+                 console.log(`[RobustFinder] All ${this.MAX_RETRIES + 1} attempts FAILED. No candidates found.`);
             }
         } // End while loop
 
@@ -189,7 +195,7 @@ export class RobustElementFinder {
                 console.log(`[RobustFinder-VERIFY] ${strategyName} in ${name}: Raw selector "${selector}" found: ${foundElements.length} element(s)`);
                 
                 // Enhanced Logging: Log initial find count
-                if (this.debugMode && foundElements.length > 0) {
+                if (foundElements.length > 0) {
                      console.log(`[RobustFinder]   ${strategyName} in ${name}: Selector "${selector}" initially found ${foundElements.length} element(s).`);
                 }
 
@@ -212,11 +218,11 @@ export class RobustElementFinder {
                             if (!candidates.has(element)) {
                                 candidates.set(element, strategyName);
                                 strategyFoundCount++;
-                                // Optional verbose logging:
-                                // if (this.debugMode) console.log(`[RobustFinder]     + Added candidate from ${name} via ${strategyName} (Visible: ${isVisible}, TextMatch: ${passesTextCheck}):`, element.tagName, element.id);
+                                // Optional verbose logging (now always on):
+                                console.log(`[RobustFinder]     + Added candidate from ${name} via ${strategyName} (Visible: ${isVisible}, TextMatch: ${passesTextCheck}):`, element.tagName, element.id);
                             }
-                        } else if (this.debugMode) {
-                                // Log skipped elements and reason
+                        } else {
+                                // Log skipped elements and reason (now always on)
                                 let skipReason = '';
                                 if (!isVisible) skipReason += 'Not Visible ';
                                 if (!passesTextCheck) skipReason += 'Text Mismatch ';
@@ -225,14 +231,14 @@ export class RobustElementFinder {
                     }
                 });
             } catch (e) {
-                 if (this.debugMode) {
-                    if (!selector.includes(':contains(')) { // Don't warn about expected ':contains' skip
-                        console.warn(`[RobustFinder] Error executing selector "${selector}" in ${name} via ${strategyName}:`, e);
-                    }
+                 // REMOVED: if (this.debugMode)
+                 if (!selector.includes(':contains(')) { // Don't warn about expected ':contains' skip
+                    console.warn(`[RobustFinder] Error executing selector "${selector}" in ${name} via ${strategyName}:`, e);
                  }
             }
         } // End loop through roots
-        if (this.debugMode && strategyFoundCount > 0) {
+        // REMOVED: if (this.debugMode)
+        if (strategyFoundCount > 0) {
             console.log(`[RobustFinder]   ${strategyName} added ${strategyFoundCount} new candidate(s) to the list.`);
         }
     }
@@ -277,7 +283,8 @@ export class RobustElementFinder {
          try {
             return JSON.parse(attrs);
          } catch (e) {
-            if (this.debugMode) console.error("[RobustFinder] Failed to parse attributes JSON:", attrs, e);
+            // REMOVED: if (this.debugMode)
+            console.error("[RobustFinder] Failed to parse attributes JSON:", attrs, e);
             return null;
          }
     }
@@ -355,7 +362,8 @@ export class RobustElementFinder {
                  return `[${attr}="${CSS.escape(value)}"]`;
              });
          } catch (e) {
-             if (this.debugMode) console.warn(`[RobustFinder] CSS escaping failed for selector: ${selector}`, e);
+             // REMOVED: if (this.debugMode)
+             console.warn(`[RobustFinder] CSS escaping failed for selector: ${selector}`, e);
              return selector; // Return original if escaping fails
          }
          return selector;
