@@ -16,9 +16,7 @@ export class SelectiveDomAnalyzer {
     static clearCache(): void {
         this.VALIDATION_CACHE.boundingRects = new WeakMap();
         this.VALIDATION_CACHE.computedStyles = new WeakMap();
-        if (this.debugMode) {
-            console.log('[SelectiveDomAnalyzer] Cache cleared.');
-        }
+        console.log('[SelectiveDomAnalyzer] Cache cleared.');
     }
 
     // --- Configuration ---
@@ -39,11 +37,11 @@ export class SelectiveDomAnalyzer {
      */
     static validateCandidateElement(element: HTMLElement, interaction?: any): boolean {
         if (!element || !(element instanceof HTMLElement)) {
-            if (this.debugMode) console.log('[SelectiveDomAnalyzer] Validation failed: Invalid element provided.');
+            console.log('[SelectiveDomAnalyzer] Validation failed: Invalid element provided.');
             return false;
         }
 
-        const checkStartTime = this.debugMode ? performance.now() : 0;
+        const checkStartTime = performance.now();
         let isValid = true;
         let failureReason = '';
 
@@ -55,11 +53,7 @@ export class SelectiveDomAnalyzer {
 
         // 2. Interactivity Check (only if visible)
         if (isValid && !this.isInteractiveElement(element)) {
-            // Don't immediately fail, but log it. Some elements might be containers
-            // that become interactive later, or the primary finder was wrong.
-            if (this.debugMode) {
-                console.log(`[SelectiveDomAnalyzer] Element ${element.tagName}#${element.id} is visible but not marked interactive by detailed check.`);
-            }
+            console.log(`[SelectiveDomAnalyzer] Element ${element.tagName}#${element.id} is visible but not marked interactive by detailed check.`);
             // Depending on strictness, you might set isValid = false here.
             // Let's keep it potentially valid if it's visible for now.
         }
@@ -74,23 +68,19 @@ export class SelectiveDomAnalyzer {
         if (isValid && interaction?.element?.textContent) {
             if (!this.isTextMatch(element, interaction.element.textContent)) {
                  // This could be due to dynamic content. Log warning but don't necessarily fail.
-                 if (this.debugMode) {
-                    console.warn(`[SelectiveDomAnalyzer] Text content mismatch for ${element.tagName}#${element.id}. Expected: "${interaction.element.textContent}", Found: "${element.textContent?.trim()}"`);
-                 }
+                 console.warn(`[SelectiveDomAnalyzer] Text content mismatch for ${element.tagName}#${element.id}. Expected: "${interaction.element.textContent}", Found: "${element.textContent?.trim()}"`);
                  // Decide if this should be a hard failure based on requirements
                  // isValid = false;
                  // failureReason = 'Text content mismatch';
             }
         }
 
-
-        if (this.debugMode) {
-            const duration = performance.now() - checkStartTime;
-            if (isValid) {
-                console.log(`[SelectiveDomAnalyzer] Validation PASSED for ${element.tagName}#${element.id} (took ${duration.toFixed(2)}ms)`);
-            } else {
-                console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: ${failureReason} (took ${duration.toFixed(2)}ms)`);
-            }
+        // Always log the result
+        const duration = performance.now() - checkStartTime;
+        if (isValid) {
+            console.log(`[SelectiveDomAnalyzer] Validation PASSED for ${element.tagName}#${element.id} (took ${duration.toFixed(2)}ms)`);
+        } else {
+            console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: ${failureReason} (took ${duration.toFixed(2)}ms)`);
         }
 
         return isValid;
@@ -110,7 +100,7 @@ export class SelectiveDomAnalyzer {
             }
             return rect;
         } catch (e) {
-            if (this.debugMode) console.warn('[SelectiveDomAnalyzer] Error getting BoundingRect:', e);
+            console.warn('[SelectiveDomAnalyzer] Error getting BoundingRect:', e);
             return null;
         }
     }
@@ -126,7 +116,7 @@ export class SelectiveDomAnalyzer {
             }
             return style;
         } catch (e) {
-             if (this.debugMode) console.warn('[SelectiveDomAnalyzer] Error getting ComputedStyle:', e);
+             console.warn('[SelectiveDomAnalyzer] Error getting ComputedStyle:', e);
             return null;
         }
     }
@@ -255,7 +245,7 @@ export class SelectiveDomAnalyzer {
                 if (!topElementAtPoint) {
                      // If elementFromPoint returns null, something might be wrong, or we are outside the viewport/document.
                      // Consider the element potentially obscured for this point.
-                     if (this.debugMode) console.log(`[SelectiveDomAnalyzer] elementFromPoint(${checkX}, ${checkY}) returned null.`);
+                     console.log(`[SelectiveDomAnalyzer] elementFromPoint(${checkX}, ${checkY}) returned null.`);
                      continue; // Check next point
                 }
 
@@ -275,15 +265,13 @@ export class SelectiveDomAnalyzer {
                 }
 
                 if (!isMatchOrDescendant) {
-                    if (this.debugMode) {
-                        console.log(`[SelectiveDomAnalyzer] Occlusion detected at point (${checkX}, ${checkY}). Expected ${element.tagName}#${element.id}, but found ${topElementAtPoint.tagName}#${topElementAtPoint.id}`);
-                    }
+                    console.log(`[SelectiveDomAnalyzer] Occlusion detected at point (${checkX}, ${checkY}). Expected ${element.tagName}#${element.id}, but found ${topElementAtPoint.tagName}#${topElementAtPoint.id}`);
                     return false; // Obscured at this point
                 }
                 // If this point is okay, continue checking other points
 
             } catch (e) {
-                 if (this.debugMode) console.warn('[SelectiveDomAnalyzer] Error during elementFromPoint check:', e);
+                 console.warn('[SelectiveDomAnalyzer] Error during elementFromPoint check:', e);
                  // Be conservative: if checks fail, assume it might be obscured
                  return false;
             }
