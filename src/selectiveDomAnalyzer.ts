@@ -64,14 +64,14 @@ export class SelectiveDomAnalyzer {
             failureReason = 'Element is obscured by another element';
         }
 
-        // 4. (Optional) Text Content Re-verification
+        // 4. Text Content Re-verification
         if (isValid && interaction?.element?.textContent) {
-            if (!this.isTextMatch(element, interaction.element.textContent)) {
-                 // This could be due to dynamic content. Log warning but don't necessarily fail.
-                 console.warn(`[SelectiveDomAnalyzer] Text content mismatch for ${element.tagName}#${element.id}. Expected: "${interaction.element.textContent}", Found: "${element.textContent?.trim()}"`);
-                 // Decide if this should be a hard failure based on requirements
-                 // isValid = false;
-                 // failureReason = 'Text content mismatch';
+            const targetText = interaction.element.textContent;
+            if (!this.isTextMatch(element, targetText)) {
+                 console.warn(`[SelectiveDomAnalyzer] Text content mismatch for ${element.tagName}#${element.id}. Expected: "${targetText}", Found: "${element.textContent?.trim()}"`);
+                 // MODIFIED: Treat text mismatch as a hard failure
+                 isValid = false;
+                 failureReason = 'Text content mismatch';
             }
         }
 
