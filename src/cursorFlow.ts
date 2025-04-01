@@ -860,14 +860,14 @@ export default class CursorFlow {
     }
   
     private hideVisualElements() {
-      // Clean up UI elements but keep the cursor and notifications
-      CursorFlowUI.cleanupAllUI(true, true);
-      
+      // Clean up UI elements - Change keepCursor to false to remove the cursor on completion/stop
+      CursorFlowUI.cleanupAllUI(false, true); // Changed first argument from true to false
+
       // Reset references
       this.highlightElement = null;
-      
+
       if (this.options.debug) {
-        console.log('Visual elements hidden and cleaned up');
+        console.log('Visual elements hidden and cleaned up (including cursor)'); // Updated log message
       }
     }
   

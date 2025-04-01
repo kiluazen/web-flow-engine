@@ -16,7 +16,7 @@ export class RobustElementFinder {
 
     private static debugMode = false;
     private static readonly MAX_RETRIES = 3; // Number of retry attempts
-    private static readonly RETRY_DELAY_MS = 500; // UPDATED: Increased from 100ms to 500ms
+    private static readonly RETRY_DELAY_MS = 1000; // UPDATED: Increased from 500ms to 1000ms
 
     static setDebugMode(enabled: boolean): void {
         this.debugMode = enabled;
@@ -378,18 +378,38 @@ export class RobustElementFinder {
      /** Reconstruct XPath from path segments */
     private static buildXPath(pathSegments: string[] | undefined): string | null {
         if (!pathSegments || pathSegments.length === 0) return null;
-        let xpath = pathSegments.join('/');
-        // Ensure it's treated as an absolute path from root if starting with html/body etc.
-        // Or make it relative if it looks like a relative path segment.
-        if (!xpath.startsWith('/') && !xpath.startsWith('(') && !xpath.startsWith('id(')) {
-            // Check if it starts with common top-level tags
-             if (!/^(html|body|#)/i.test(pathSegments[0])) {
-                 xpath = '//' + xpath; // Assume relative if not starting from root tags or ID function
+
+        // Check if the first segment looks like an ID selector (e.g., #some-id)
+        if (pathSegments[0].startsWith('#')) {
+            const elementId = pathSegments[0].substring(1); // Remove the leading #
+            // Construct an XPath using the id() function for the first part
+            // and join the rest, assuming they are relative steps
+            const remainingPath = pathSegments.slice(1).join('/');
+            // Ensure remaining path starts with / if not empty
+            const relativePath = remainingPath ? `/${remainingPath}` : '';
+            // Use //* to find the element with the ID anywhere, then append relative path
+            // Or use id() function which is more direct if supported and unique
+            // Using id() is generally better if the ID is unique within the document.
+             try {
+                // Attempt to use the id() function
+                return `id('${CSS.escape(elementId)}')${relativePath}`;
+             } catch (e) {
+                // Fallback if id() construction fails (e.g., complex IDs)
+                 console.warn(`[RobustFinder] Could not construct XPath with id() for ${elementId}. Falling back.`);
+                 return `//*[@id='${CSS.escape(elementId)}']${relativePath}`;
              }
+
+        } else {
+            // Original logic for non-ID starting paths
+            let xpath = pathSegments.join('/');
+            if (!xpath.startsWith('/') && !xpath.startsWith('(')) {
+                 if (!/^(html|body)/i.test(pathSegments[0])) {
+                     xpath = '//' + xpath;
+                 }
+            }
+            xpath = xpath.replace(/\/\/\//g, '//');
+            return xpath;
         }
-        // Clean up potential double slashes from joining // and a relative path part
-        xpath = xpath.replace(/\/\/\//g, '//');
-        return xpath;
     }
 
 } 
