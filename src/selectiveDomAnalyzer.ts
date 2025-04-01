@@ -205,79 +205,74 @@ export class SelectiveDomAnalyzer {
     private static isTopElement(element: HTMLElement): boolean {
         const rect = this.getCachedBoundingRect(element);
         if (!rect || rect.width === 0 || rect.height === 0) {
-            // If element has no dimensions or is invalid, it can't be the top element
             return false;
         }
 
-        // Check points within the element against elementFromPoint
-        // Using multiple points increases reliability for elements with complex shapes or borders
         const pointsToCheck = [
             { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, // Center
-            { x: rect.left + 1, y: rect.top + 1 },                             // Top-left corner (inset slightly)
-            { x: rect.right - 1, y: rect.top + 1 },                            // Top-right corner
-            { x: rect.left + 1, y: rect.bottom - 1 },                           // Bottom-left corner
-            { x: rect.right - 1, y: rect.bottom - 1 }                          // Bottom-right corner
+            { x: rect.left + 1, y: rect.top + 1 },
+            { x: rect.right - 1, y: rect.top + 1 },
+            { x: rect.left + 1, y: rect.bottom - 1 },
+            { x: rect.right - 1, y: rect.bottom - 1 }
         ];
-
-        // If the element is small, just check the center
         if (rect.width < 5 || rect.height < 5) {
-            pointsToCheck.splice(1); // Keep only the center point
+            pointsToCheck.splice(1);
         }
 
         let doc = element.ownerDocument;
         let rootNode: Node | ShadowRoot = element.getRootNode();
 
         for (const point of pointsToCheck) {
-            // Ensure point coordinates are within document bounds if needed
             const checkX = Math.max(0, Math.min(point.x, window.innerWidth - 1));
             const checkY = Math.max(0, Math.min(point.y, window.innerHeight - 1));
 
             try {
                 let topElementAtPoint: Element | null = null;
-                // Use the correct context for elementFromPoint (document or shadowRoot)
                 if (rootNode instanceof ShadowRoot) {
                     topElementAtPoint = rootNode.elementFromPoint(checkX, checkY);
                 } else {
                     topElementAtPoint = doc.elementFromPoint(checkX, checkY);
                 }
 
-
                 if (!topElementAtPoint) {
-                     // If elementFromPoint returns null, something might be wrong, or we are outside the viewport/document.
-                     // Consider the element potentially obscured for this point.
                      console.log(`[SelectiveDomAnalyzer] elementFromPoint(${checkX}, ${checkY}) returned null.`);
-                     continue; // Check next point
+                     continue;
                 }
 
-                // Check if the found element is the target element or a descendant of it.
+                // MODIFIED CHECK:
+                // Check if the found element is the target element itself,
+                // OR a descendant of the target element,
+                // OR an ancestor of the target element.
                 let current: Element | null = topElementAtPoint;
-                let isMatchOrDescendant = false;
+                let isRelated = false;
                 while (current) {
                     if (current === element) {
-                        isMatchOrDescendant = true;
-                        break;
-                    }
-                    // Stop traversal at the root node boundary (document or shadow root)
-                    if (current === rootNode || current === doc.body || current === doc.documentElement) {
+                        isRelated = true; // Found element is the target or a descendant
                         break;
                     }
                     current = current.parentElement;
                 }
-
-                if (!isMatchOrDescendant) {
-                    console.log(`[SelectiveDomAnalyzer] Occlusion detected at point (${checkX}, ${checkY}). Expected ${element.tagName}#${element.id}, but found ${topElementAtPoint.tagName}#${topElementAtPoint.id}`);
-                    return false; // Obscured at this point
+                // If not target or descendant, check if target is a descendant of the found element (i.e., found element is an ancestor)
+                if (!isRelated && element.contains(topElementAtPoint)) {
+                     isRelated = true; // Found element is an ancestor
                 }
-                // If this point is okay, continue checking other points
+
+                if (!isRelated) {
+                    console.log(`[SelectiveDomAnalyzer] Occlusion detected at point (${checkX}, ${checkY}). Target ${element.tagName}#${element.id} is not related to the top element ${topElementAtPoint.tagName}#${topElementAtPoint.id}`);
+                    return false; // Obscured by an unrelated element
+                } else {
+                    // Log success for this point if needed for debugging
+                    // console.log(`[SelectiveDomAnalyzer] Point (${checkX}, ${checkY}) check passed. Top element ${topElementAtPoint.tagName}#${topElementAtPoint.id} is related to target ${element.tagName}#${element.id}`);
+                }
+                // If this point is okay (related), continue checking other points
 
             } catch (e) {
                  console.warn('[SelectiveDomAnalyzer] Error during elementFromPoint check:', e);
-                 // Be conservative: if checks fail, assume it might be obscured
                  return false;
             }
         }
 
-        // If all checked points resolve to the element or its descendants, it's likely the top element.
+        // If all checked points resolve to the element, its descendant, or its ancestor, consider it not obscured.
         return true;
     }
 
