@@ -218,95 +218,71 @@ export class RobustElementFinder {
         strategyName: string,
         textFilter?: string
     ): void {
-        // ADDED: Unconditional log to confirm findElements is called
-        console.log(`[RobustFinder-VERIFY] findElements called with selector: "${selector}", strategy: ${strategyName}`);
+        // console.log(`[RobustFinder-VERIFY] findElements called with selector: "${selector}", strategy: ${strategyName}`); // Keep commented out unless deep debugging
         
         let strategyFoundCount = 0;
         for (const { name, root } of roots) {
             try {
                 const foundElements = root.querySelectorAll(selector);
-                // Unconditional logging for ALL selector results
-                console.log(`[RobustFinder-VERIFY] ${strategyName} in ${name}: Raw selector "${selector}" found: ${foundElements.length} element(s)`);
+                // console.log(`[RobustFinder-VERIFY] ${strategyName} in ${name}: Raw selector "${selector}" found: ${foundElements.length} element(s)`); // Keep commented out
                 
-                // Enhanced Logging: Log initial find count
                 if (foundElements.length > 0) {
                      console.log(`[RobustFinder]   ${strategyName} in ${name}: Selector "${selector}" initially found ${foundElements.length} element(s).`);
                 }
 
                 foundElements.forEach(element => {
                     if (element instanceof HTMLElement) {
-                        // Enhanced Logging: Log visibility and text checks
                         const isVisible = this.isElementPotentiallyVisible(element);
                         const passesTextCheck = !textFilter || this.fuzzyTextMatch(element, textFilter);
 
-                        // ADDED: Unconditional log for ANY element found, showing tag, id, and check results
-                        const eleTextContent = (element.textContent || "").trim();
-                        const eleInnerText = (element.innerText || "").trim();
-                        console.log(`[RobustFinder-VERIFY] ${strategyName} checking: <${element.tagName.toLowerCase()}${element.id ? ' id="'+element.id+'"' : ''}> `+
-                                     `Visible: ${isVisible} [W:${element.offsetWidth},H:${element.offsetHeight},Rects:${element.getClientRects().length}], `+
-                                     `TextContent: "${eleTextContent.substring(0, 20)}${eleTextContent.length > 20 ? '...' : ''}" | `+
-                                     `InnerText: "${eleInnerText.substring(0, 20)}${eleInnerText.length > 20 ? '...' : ''}" | `+
-                                     `TextMatch: ${!textFilter ? 'N/A' : passesTextCheck}${textFilter ? ' (Target: "'+textFilter+'")' : ''}`);
+                        // REMOVED very verbose per-element check log
+                        // const eleTextContent = (element.textContent || "").trim();
+                        // const eleInnerText = (element.innerText || "").trim();
+                        // console.log(`[RobustFinder-VERIFY] ${strategyName} checking: <${element.tagName.toLowerCase()}...`);
 
                         if (passesTextCheck && isVisible) {
                             if (!candidates.has(element)) {
                                 candidates.set(element, strategyName);
                                 strategyFoundCount++;
-                                // Optional verbose logging (now always on):
+                                // Keep the log for *added* candidates
                                 console.log(`[RobustFinder]     + Added candidate from ${name} via ${strategyName} (Visible: ${isVisible}, TextMatch: ${passesTextCheck}):`, element.tagName, element.id);
                             }
-                        } else {
-                                // Log skipped elements and reason (now always on)
-                                let skipReason = '';
-                                if (!isVisible) skipReason += 'Not Visible ';
-                                if (!passesTextCheck) skipReason += 'Text Mismatch ';
-                                console.log(`[RobustFinder]     - Skipped candidate from ${name} via ${strategyName} (Reason: ${skipReason.trim()}):`, element.tagName, element.id);
-                        }
+                        } 
+                        // REMOVED per-element skip log
+                        // else {
+                        //     let skipReason = '';
+                        //     if (!isVisible) skipReason += 'Not Visible ';
+                        //     if (!passesTextCheck) skipReason += 'Text Mismatch ';
+                        //     console.log(`[RobustFinder]     - Skipped candidate from ${name} via ${strategyName} (Reason: ${skipReason.trim()}):`, element.tagName, element.id);
+                        // }
                     }
                 });
             } catch (e) {
-                 // REMOVED: if (this.debugMode)
-                 if (!selector.includes(':contains(')) { // Don't warn about expected ':contains' skip
-                    console.warn(`[RobustFinder] Error executing selector "${selector}" in ${name} via ${strategyName}:`, e);
+                 if (!selector.includes(':contains(')) { 
+                     console.warn(`[RobustFinder] Error executing selector "${selector}" in ${name} via ${strategyName}:`, e);
                  }
             }
-        } // End loop through roots
-        // REMOVED: if (this.debugMode)
+        } 
         if (strategyFoundCount > 0) {
             console.log(`[RobustFinder]   ${strategyName} added ${strategyFoundCount} new candidate(s) to the list.`);
         }
     }
 
-    /** Enhanced visibility check with detailed logging */
+    /** Enhanced visibility check with detailed logging - simplified logs */
     private static isElementPotentiallyVisible(element: HTMLElement): boolean {
-        // Check dimensions - an element is potentially visible if it has:
-        // 1. Some width and height, OR
-        // 2. Some client rects (for inline elements like spans that might not have dimensions), OR
-        // 3. Children that might be visible (like divs containing only other elements)
-        
         const hasDimensions = element.offsetWidth > 0 && element.offsetHeight > 0;
         const hasClientRects = element.getClientRects().length > 0;
         const hasChildren = element.children.length > 0;
-        
-        // Elements that are not visible might still be important containers
         const isContainer = element.tagName === 'DIV' || element.tagName === 'SECTION' || 
                            element.tagName === 'ARTICLE' || element.tagName === 'MAIN' ||
                            element.tagName === 'HEADER' || element.tagName === 'FOOTER' || 
                            element.tagName === 'NAV';
-        
-        // Check if the element has display:none or visibility:hidden
         const style = window.getComputedStyle(element);
         const isHiddenByCSS = style.display === 'none' || style.visibility === 'hidden' || 
                               parseFloat(style.opacity || '1') === 0;
-        
-        // The element is potentially visible if it has dimensions, client rects, 
-        // or is a container with children (even if it itself has no dimensions)
         const isVisible = hasDimensions || hasClientRects || (hasChildren && isContainer && !isHiddenByCSS);
-        
-        // Log results
-        console.log(`[RobustFinder-VERIFY] Visibility check: <${element.tagName.toLowerCase()}${element.id ? ' id="'+element.id+'"' : ''}> `+
-                   `Result: ${isVisible} (Dims:${hasDimensions}, Rects:${hasClientRects}, Children:${hasChildren}, Container:${isContainer}, Hidden:${isHiddenByCSS})`);
-        
+        // REMOVED per-element visibility check log
+        // console.log(`[RobustFinder-VERIFY] Visibility check: <${element.tagName.toLowerCase()}...`);
         return isVisible;
     }
 
@@ -353,32 +329,28 @@ export class RobustElementFinder {
         return selectors;
     }
 
-    /** Enhanced text matching with logging */
+    /** Enhanced text matching with logging - simplified logs */
      private static fuzzyTextMatch(element: HTMLElement, targetText: string): boolean {
-        // Unconditional log to show function is being called
-        console.log(`[RobustFinder-VERIFY] fuzzyTextMatch called for "${targetText}"`);
+        // REMOVED per-element text check log
+        // console.log(`[RobustFinder-VERIFY] fuzzyTextMatch called for "${targetText}"`);
         
         const elementText = (element.textContent || "").trim();
-        const elementInnerText = (element.innerText || "").trim(); // innerText respects layout/visibility
-        const elementValue = (element as HTMLInputElement).value?.trim(); // Check input/textarea value
+        const elementInnerText = (element.innerText || "").trim(); 
+        const elementValue = (element as HTMLInputElement).value?.trim();
         const search = targetText.trim();
 
-        // Exact match first (prefer innerText as it's closer to what user sees)
         if (elementInnerText === search || elementText === search || (elementValue && elementValue === search)) {
-            console.log(`[RobustFinder-VERIFY] Exact text match found`);
+            // console.log(`[RobustFinder-VERIFY] Exact text match found`); // Commented out
             return true;
         }
-
-        // Add case-insensitive and partial matching 
         const searchLower = search.toLowerCase();
         if (elementInnerText.toLowerCase().includes(searchLower) || 
             elementText.toLowerCase().includes(searchLower) ||
             (elementValue && elementValue.toLowerCase().includes(searchLower))) {
-            console.log(`[RobustFinder-VERIFY] Fuzzy text match found`);
-            return true; // Use includes for partial match
+            // console.log(`[RobustFinder-VERIFY] Fuzzy text match found`); // Commented out
+            return true; 
         }
-
-        console.log(`[RobustFinder-VERIFY] No text match found`);
+        // console.log(`[RobustFinder-VERIFY] No text match found`); // Commented out
         return false;
     }
 

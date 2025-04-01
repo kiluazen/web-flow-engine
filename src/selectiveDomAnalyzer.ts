@@ -208,10 +208,8 @@ export class SelectiveDomAnalyzer {
             return false;
         }
 
-        // MODIFIED: Check only the center point
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
-
         const checkX = Math.max(0, Math.min(centerX, window.innerWidth - 1));
         const checkY = Math.max(0, Math.min(centerY, window.innerHeight - 1));
 
@@ -227,12 +225,11 @@ export class SelectiveDomAnalyzer {
             }
 
             if (!topElementAtPoint) {
+                // Keep log if elementFromPoint returns null, as it indicates an issue
                 console.log(`[SelectiveDomAnalyzer] elementFromPoint (center: ${checkX}, ${checkY}) returned null.`);
-                // Consider it potentially obscured if center point check fails
                 return false;
             }
 
-            // Check if the found element is the target element, a descendant, or an ancestor.
             let current: Element | null = topElementAtPoint;
             let isRelated = false;
             while (current) {
@@ -247,17 +244,15 @@ export class SelectiveDomAnalyzer {
             }
 
             if (!isRelated) {
+                 // Keep log for occlusion failure
                 console.log(`[SelectiveDomAnalyzer] Occlusion detected at center point (${checkX}, ${checkY}). Target ${element.tagName}#${element.id} is not related to the top element ${topElementAtPoint.tagName}#${topElementAtPoint.id}`);
-                return false; // Obscured by an unrelated element
-            } else {
-                // Center point check passed
-                console.log(`[SelectiveDomAnalyzer] Center point (${checkX}, ${checkY}) check passed. Top element ${topElementAtPoint.tagName}#${topElementAtPoint.id} is related to target ${element.tagName}#${element.id}`);
-                return true;
+                return false;
             }
+            return true; // Point check passed
 
         } catch (e) {
             console.warn('[SelectiveDomAnalyzer] Error during elementFromPoint check:', e);
-            return false; // Conservative failure on error
+            return false;
         }
     }
 

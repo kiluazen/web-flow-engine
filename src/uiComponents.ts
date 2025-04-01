@@ -1151,16 +1151,17 @@ export class CursorFlowUI {
             
             lastRect = rect;
             
-            console.log('[HIGHLIGHT-POSITION] Updated highlight position for element:', {
-                elementRect: rect,
-                highlightPosition: {
-                    top: highlight.style.top,
-                    left: highlight.style.left,
-                    width: highlight.style.width,
-                    height: highlight.style.height,
-                    zIndex: highlight.style.zIndex
-                }
-            });
+            // COMMENTED OUT: Removed excessive logging
+            // console.log('[HIGHLIGHT-POSITION] Updated highlight position for element:', {
+            //     elementRect: rect,
+            //     highlightPosition: {
+            //         top: highlight.style.top,
+            //         left: highlight.style.left,
+            //         width: highlight.style.width,
+            //         height: highlight.style.height,
+            //         zIndex: highlight.style.zIndex
+            //     }
+            // });
         } catch (error) {
             console.error('[HIGHLIGHT-POSITION] Error updating highlight position:', error);
         }
