@@ -173,37 +173,39 @@ export class RobustElementFinder {
         let activeOverlay: HTMLElement | null = null;
 
         try {
-            // Query for potential overlay containers (generic)
             const potentialOverlays = Array.from(document.querySelectorAll(
-                '[role="dialog"], [role="alertdialog"], .modal, .dialog, .popup, .mantine-Modal-root, .mantine-Popover-dropdown'
+                // Keep standard roles & generic classes
+                '[role="dialog"], [role="alertdialog"], .modal, .dialog, .popup, ' +
+                // Add Mantine specific classes (common patterns)
+                '.mantine-Modal-root, .mantine-Modal-modal, .mantine-Popover-dropdown'
             )) as HTMLElement[];
 
-            // Filter for visible overlays with a high z-index
+            // Filter for visibility using only CSS properties (more reliable for containers)
             const visibleOverlays = potentialOverlays.filter(el => {
-                if (el.offsetWidth <= 0 || el.offsetHeight <= 0) return false;
-                const style = window.getComputedStyle(el);
-                return style.display !== 'none' && style.visibility !== 'hidden';
+                try {
+                    const style = window.getComputedStyle(el);
+                    return style.display !== 'none' && style.visibility !== 'hidden';
+                } catch (e) {
+                    // Ignore errors getting style (e.g., element detached)
+                    return false;
+                }
             });
 
-            // Find the one with the highest z-index (most likely the active one)
             if (visibleOverlays.length > 0) {
                 visibleOverlays.sort((a, b) => {
                     const zIndexA = parseInt(window.getComputedStyle(a).zIndex) || 0;
                     const zIndexB = parseInt(window.getComputedStyle(b).zIndex) || 0;
-                    return zIndexB - zIndexA;
+                    return zIndexB - zIndexA; // Highest z-index first
                 });
                 activeOverlay = visibleOverlays[0];
                 console.log(`[RobustFinder] Detected active overlay element (highest z-index):`, activeOverlay);
-                // Add the detected overlay as the *first* search root
                 roots.push({ name: 'Active Overlay', root: activeOverlay });
             }
         } catch (e) {
             console.warn('[RobustFinder] Error detecting overlay elements:', e);
         }
 
-        // Always add the main document as the fallback search root
         roots.push({ name: 'Document', root: document });
-
         console.log('[RobustFinder] Search roots determined:', roots.map(r => r.name));
         return roots;
     }
