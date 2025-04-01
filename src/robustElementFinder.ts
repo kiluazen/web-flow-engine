@@ -453,12 +453,12 @@ export class RobustElementFinder {
 
             // --- MODIFIED: Prioritize //*[@id=...] ---
             try {
-                const escapedId = CSS.escape(elementId); // Escape for attribute value context
+                const idEscaped = CSS.escape(elementId); // Escape for attribute value context
                 // Ensure quotes within the ID itself are handled if necessary.
                 // If IDs can contain single quotes, this might need adjustment.
-                return `//*[@id="${escapedId}"]${relativePath}`;
+                return `//*[@id="${idEscaped}"]${relativePath}`;
             } catch (e) {
-                 console.warn(`[RobustFinder] Could not construct XPath with [@id="${escapedId}"] for ${elementId}. Error:`, e);
+                 console.warn(`[RobustFinder] Could not construct XPath with [@id="${elementId}"] for ${elementId}. Error:`, e);
                  // Fallback to trying id() function
                  try {
                      // Escape differently for string literal context if needed, though CSS.escape might suffice
