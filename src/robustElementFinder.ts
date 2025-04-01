@@ -164,15 +164,47 @@ export class RobustElementFinder {
 
     // --- Helper Methods ---
 
-    /** Defines search areas (document, modals, portals) */
+    /**
+     * Defines search areas, prioritizing detected modals/dialogs before the main document.
+     * Inspired by build-dom-tree.js iframe/shadow DOM handling.
+     */
     private static getSearchRoots(): { name: string; root: Document | Element }[] {
         const roots: { name: string; root: Document | Element }[] = [];
-        // Basic: just search the whole document for now
-        // Could be expanded later to find modals/portals like in ElementUtils
+        let activeOverlay: HTMLElement | null = null;
+
+        try {
+            // Query for potential overlay containers (generic)
+            const potentialOverlays = Array.from(document.querySelectorAll(
+                '[role="dialog"], [role="alertdialog"], .modal, .dialog, .popup, .mantine-Modal-root, .mantine-Popover-dropdown'
+            )) as HTMLElement[];
+
+            // Filter for visible overlays with a high z-index
+            const visibleOverlays = potentialOverlays.filter(el => {
+                if (el.offsetWidth <= 0 || el.offsetHeight <= 0) return false;
+                const style = window.getComputedStyle(el);
+                return style.display !== 'none' && style.visibility !== 'hidden';
+            });
+
+            // Find the one with the highest z-index (most likely the active one)
+            if (visibleOverlays.length > 0) {
+                visibleOverlays.sort((a, b) => {
+                    const zIndexA = parseInt(window.getComputedStyle(a).zIndex) || 0;
+                    const zIndexB = parseInt(window.getComputedStyle(b).zIndex) || 0;
+                    return zIndexB - zIndexA;
+                });
+                activeOverlay = visibleOverlays[0];
+                console.log(`[RobustFinder] Detected active overlay element (highest z-index):`, activeOverlay);
+                // Add the detected overlay as the *first* search root
+                roots.push({ name: 'Active Overlay', root: activeOverlay });
+            }
+        } catch (e) {
+            console.warn('[RobustFinder] Error detecting overlay elements:', e);
+        }
+
+        // Always add the main document as the fallback search root
         roots.push({ name: 'Document', root: document });
-        // Example: Add active modal if detected
-        // const activeModal = /* logic to find active modal */;
-        // if (activeModal) roots.unshift({ name: 'Active Modal', root: activeModal });
+
+        console.log('[RobustFinder] Search roots determined:', roots.map(r => r.name));
         return roots;
     }
 
