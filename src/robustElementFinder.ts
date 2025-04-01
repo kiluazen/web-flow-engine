@@ -16,7 +16,7 @@ export class RobustElementFinder {
 
     private static debugMode = false;
     private static readonly MAX_RETRIES = 3; // Number of retry attempts
-    private static readonly RETRY_DELAY_MS = 1000; // UPDATED: Increased from 500ms to 1000ms
+    private static readonly RETRY_DELAY_MS = 1500; // UPDATED: Increased from 1000ms to 1500ms
 
     static setDebugMode(enabled: boolean): void {
         this.debugMode = enabled;
@@ -210,88 +210,100 @@ export class RobustElementFinder {
     // --- Helper Methods ---
 
     /**
-     * Defines search areas, prioritizing detected modals/dialogs before the main document.
-     * MODIFIED: Attempts to find a more specific content container within the detected overlay.
+     * Defines search areas, prioritizing specific modal content containers,
+     * then overlay roots, before the main document.
+     * Inspired by elementUtils.ts logic.
      */
     private static getSearchRoots(): { name: string; root: Document | Element }[] {
         const roots: { name: string; root: Document | Element }[] = [];
-        
+        let foundSpecificContent = false;
+
         try {
-            // IMPROVED: First try to find ANY modal/dialog/overlay with content
+            // 1. PRIORITIZE: Find specific modal/dialog CONTENT containers
             const modalContentSelectors = [
                 // Mantine
                 '.mantine-Modal-content', '.mantine-Dialog-content',
-                // Generic dialog content selectors
-                '[role="dialog"] > div', '[role="dialog"] form',
-                // Bootstrap 
-                '.modal-body', '.modal-content',
+                // Bootstrap
+                '.modal-content', '.modal-body',
                 // Material UI
-                '.MuiDialog-paper', '.MuiModal-root > div',
-                // Common patterns
-                '.dialog-content', '.modal-container > div',
-                '.popup-content', '.overlay > div'
+                '.MuiDialog-paper', '.MuiModal-root > div[role="presentation"]:not([aria-hidden="true"])',
+                 // Generic dialog patterns (more specific first)
+                '[role="dialog"][aria-modal="true"] > *:not(style):not(script)', // Direct child of modal dialog
+                '[role="dialog"]:not([aria-modal="true"]) > *:not(style):not(script)', // Non-modal dialog direct child
+                '.dialog-content', '.modal-container > *:not(style):not(script)',
+                '.popup-content'
             ];
-            
-            // First try a direct search for content elements
-            const contentElements = document.querySelectorAll(modalContentSelectors.join(','));
-            
+
+            const contentElements = document.querySelectorAll(modalContentSelectors.join(', '));
+
             if (contentElements.length > 0) {
-                // Sort by z-index to find the topmost content
-                const visibleElements = Array.from(contentElements)
+                const visibleContentElements = Array.from(contentElements)
                     .filter(el => {
+                        // Basic inline visibility check for potential roots
+                        if (!(el instanceof HTMLElement)) return false;
                         const style = window.getComputedStyle(el);
-                        return el instanceof HTMLElement && 
-                               style.display !== 'none' && 
+                        const rect = el.getBoundingClientRect();
+                        return style.display !== 'none' &&
                                style.visibility !== 'hidden' &&
-                               (el as HTMLElement).offsetWidth > 0;
+                               parseFloat(style.opacity || '1') > 0 &&
+                               !el.hidden &&
+                               (rect.width > 0 || rect.height > 0); // Check rect for size
                     }) as HTMLElement[];
-                    
-                // Add all visible content elements as search roots, highest z-index first
-                visibleElements.sort((a, b) => {
-                    const aZ = parseInt(window.getComputedStyle(a).zIndex) || 0;
-                    const bZ = parseInt(window.getComputedStyle(b).zIndex) || 0;
-                    return bZ - aZ;
-                });
-                
-                visibleElements.forEach((el, i) => 
-                    roots.push({ name: `Modal Content ${i+1}`, root: el }));
+
+                 // Sort by z-index (highest first)
+                 visibleContentElements.sort((a, b) => {
+                    const zIndexA = parseInt(window.getComputedStyle(a).zIndex) || 0;
+                    const zIndexB = parseInt(window.getComputedStyle(b).zIndex) || 0;
+                    return zIndexB - zIndexA;
+                 });
+
+                if (visibleContentElements.length > 0) {
+                    visibleContentElements.forEach((el, i) =>
+                        roots.push({ name: `Modal Content ${i+1}`, root: el }));
+                    foundSpecificContent = true;
+                    if (this.debugMode) console.log(`[RobustFinder] Found ${roots.length} specific modal content root(s).`);
+                }
             }
-            
-            // FALLBACK: If no content found, look for modal containers
-            if (roots.length === 0) {
-                // Query for potential overlay roots
+
+            // 2. FALLBACK: If no specific CONTENT found, look for OVERLAY roots
+            if (!foundSpecificContent) {
+                if (this.debugMode) console.log(`[RobustFinder] No specific content roots found, searching for overlay roots...`);
                 const potentialOverlays = Array.from(document.querySelectorAll(
-                    '[role="dialog"], [role="alertdialog"], .modal, .dialog, .popup, ' +
-                     '.mantine-Modal-root, .mantine-Drawer-root, .mantine-Popover-dropdown' // Added Drawer
+                    // General containers
+                    '[role="dialog"], [role="alertdialog"], .modal, .dialog, .popup, .overlay,' +
+                     // Framework specific roots
+                     '.mantine-Modal-root, .mantine-Drawer-root, .mantine-Popover-dropdown,' +
+                     '.MuiModal-root, .MuiDialog-root'
                 )) as HTMLElement[];
 
-                // Filter for visibility
                 const visibleOverlays = potentialOverlays.filter(el => {
-                    try {
+                     try {
                         const style = window.getComputedStyle(el);
-                        // Check display, visibility, and opacity (more robust)
-                        return style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity || '1') > 0;
+                        // Basic visibility check for overlay roots
+                        return style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity || '1') > 0 && !el.hidden;
                     } catch (e) { return false; }
                 });
 
                 if (visibleOverlays.length > 0) {
-                    // Sort by z-index to find the topmost one
                     visibleOverlays.sort((a, b) => {
                         const zIndexA = parseInt(window.getComputedStyle(a).zIndex) || 0;
                         const zIndexB = parseInt(window.getComputedStyle(b).zIndex) || 0;
                         return zIndexB - zIndexA;
                     });
-                    visibleOverlays.forEach((el, i) => 
+                    // Add only the highest z-index overlay if multiple are found at this stage?
+                    // For now, add all visible ones found via this method.
+                    visibleOverlays.forEach((el, i) =>
                         roots.push({ name: `Overlay Root ${i+1}`, root: el }));
+                     if (this.debugMode) console.log(`[RobustFinder] Found ${roots.length} overlay root(s).`);
                 }
             }
         } catch (e) {
-            console.warn('[RobustFinder] Error detecting modal elements:', e);
+            console.warn('[RobustFinder] Error detecting modal/overlay elements:', e);
         }
-        
-        // Always add document as fallback
+
+        // 3. FINAL FALLBACK: Always add document
         roots.push({ name: 'Document', root: document });
-        console.log('[RobustFinder] Search roots determined:', roots.map(r => r.name));
+        console.log('[RobustFinder] Final search roots determined:', roots.map(r => r.name));
         return roots;
     }
 
@@ -403,70 +415,48 @@ export class RobustElementFinder {
         }
     }
 
-    /** Enhanced visibility check inspired by common pitfalls and robust solutions */
+    /** Simplified and refined visibility check based on common methods */
     private static isElementPotentiallyVisible(element: HTMLElement): boolean {
         if (!element || !element.isConnected) {
-             if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: Element not connected`);
-            return false; // Element must be in the DOM
+            return false; // Must be in the DOM
         }
 
         // Check HTML 'hidden' attribute
         if (element.hidden) {
-            if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: Has hidden attribute`);
             return false;
         }
 
         const style = window.getComputedStyle(element);
 
-        // Check basic CSS properties
-        if (style.display === 'none') {
-             if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: display: none`);
-            return false;
-        }
-        if (style.visibility === 'hidden') {
-             if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: visibility: hidden`);
-            return false;
-        }
-        // Check opacity (allow tolerance for floating point issues)
-        if (parseFloat(style.opacity || '1') < 0.01) {
-             if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: opacity < 0.01`);
+        // Check basic CSS properties that hide elements
+        if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') < 0.01) {
             return false;
         }
 
-        // Check dimensions: offsetWidth/Height are good but fail on inline elements.
-        // getClientRects() is more robust but can be fooled by overflow:hidden or small elements.
+        // Check dimensions using robust methods
+        // offsetWidth/offsetHeight are good for block elements and include borders/padding
+        // getClientRects().length > 0 is better for inline elements or elements with transforms
         const hasDimensions = element.offsetWidth > 0 || element.offsetHeight > 0 || element.getClientRects().length > 0;
         if (!hasDimensions) {
-            // Allow zero-size containers if they have visible children (simplified check)
-            if (!(element.children.length > 0 && style.overflow === 'visible')) {
-                if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: No dimensions`);
-                return false;
-            }
+             // Allow containers with overflow:visible potentially? Too complex for now.
+             // If it has no dimensions according to the browser, treat as not visible for interaction.
+            return false;
         }
 
-        // Optional: Basic viewport check (can be fooled by fixed elements, refine if needed)
+        // Viewport check - Is any part of the element within the viewport?
+        // Optional: Could be removed if off-screen elements are valid targets
         const rect = element.getBoundingClientRect();
-        const isInViewport = rect.top < window.innerHeight && rect.bottom > 0 &&
-                             rect.left < window.innerWidth && rect.right > 0;
+         const isInViewport = rect.top < window.innerHeight && rect.bottom > 0 &&
+                              rect.left < window.innerWidth && rect.right > 0;
 
-        if (!isInViewport) {
-            // Elements outside the viewport might still be valid candidates if scrollable,
-            // but this provides a basic filter. Keep if element must be initially visible.
-            // Consider removing this if elements outside initial view are common targets.
-             if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: Outside viewport (Top: ${rect.top}, Bottom: ${rect.bottom}, Left: ${rect.left}, Right: ${rect.right})`);
-            // return false; // Uncomment this line to strictly enforce initial viewport presence
-        }
+         if (!isInViewport) {
+             // If strict viewport visibility is required, uncomment the next line
+             // return false;
+         }
 
-        // Check parent visibility (simplified - full recursion is expensive)
-        const parent = element.parentElement;
-        if (parent) {
-            const parentStyle = window.getComputedStyle(parent);
-            if (parentStyle.display === 'none' || parentStyle.visibility === 'hidden') {
-                if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: Parent is hidden`);
-                return false;
-            }
-        }
-         if(this.debugMode) console.log(`[RobustFinder-Visibility] Pass for ${element.tagName}#${element.id}`);
+        // Removed parent visibility check - can be unreliable and slow.
+        // Occlusion (being covered by another element) should be handled by the SelectiveDomAnalyzer.
+
         return true; // Passed all checks
     }
 
