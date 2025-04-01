@@ -160,56 +160,81 @@ export class RobustElementFinder {
      */
     private static getSearchRoots(): { name: string; root: Document | Element }[] {
         const roots: { name: string; root: Document | Element }[] = [];
-        let activeOverlay: HTMLElement | null = null;
-        let overlayContentRoot: Element | null = null; // Added
-
+        
         try {
-            // Query for potential overlay roots
-            const potentialOverlays = Array.from(document.querySelectorAll(
-                '[role="dialog"], [role="alertdialog"], .modal, .dialog, .popup, ' +
-                 '.mantine-Modal-root, .mantine-Drawer-root, .mantine-Popover-dropdown' // Added Drawer
-            )) as HTMLElement[];
-
-            // Filter for visibility
-            const visibleOverlays = potentialOverlays.filter(el => {
-                try {
-                    const style = window.getComputedStyle(el);
-                    // Check display, visibility, and opacity (more robust)
-                    return style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity || '1') > 0;
-                } catch (e) { return false; }
-            });
-
-            if (visibleOverlays.length > 0) {
-                // Sort by z-index to find the topmost one
-                visibleOverlays.sort((a, b) => {
-                    const zIndexA = parseInt(window.getComputedStyle(a).zIndex) || 0;
-                    const zIndexB = parseInt(window.getComputedStyle(b).zIndex) || 0;
-                    return zIndexB - zIndexA;
+            // IMPROVED: First try to find ANY modal/dialog/overlay with content
+            const modalContentSelectors = [
+                // Mantine
+                '.mantine-Modal-content', '.mantine-Dialog-content',
+                // Generic dialog content selectors
+                '[role="dialog"] > div', '[role="dialog"] form',
+                // Bootstrap 
+                '.modal-body', '.modal-content',
+                // Material UI
+                '.MuiDialog-paper', '.MuiModal-root > div',
+                // Common patterns
+                '.dialog-content', '.modal-container > div',
+                '.popup-content', '.overlay > div'
+            ];
+            
+            // First try a direct search for content elements
+            const contentElements = document.querySelectorAll(modalContentSelectors.join(','));
+            
+            if (contentElements.length > 0) {
+                // Sort by z-index to find the topmost content
+                const visibleElements = Array.from(contentElements)
+                    .filter(el => {
+                        const style = window.getComputedStyle(el);
+                        return el instanceof HTMLElement && 
+                               style.display !== 'none' && 
+                               style.visibility !== 'hidden' &&
+                               (el as HTMLElement).offsetWidth > 0;
+                    }) as HTMLElement[];
+                    
+                // Add all visible content elements as search roots, highest z-index first
+                visibleElements.sort((a, b) => {
+                    const aZ = parseInt(window.getComputedStyle(a).zIndex) || 0;
+                    const bZ = parseInt(window.getComputedStyle(b).zIndex) || 0;
+                    return bZ - aZ;
                 });
-                activeOverlay = visibleOverlays[0];
-                console.log(`[RobustFinder] Detected active overlay element (highest z-index):`, activeOverlay);
+                
+                visibleElements.forEach((el, i) => 
+                    roots.push({ name: `Modal Content ${i+1}`, root: el }));
+            }
+            
+            // FALLBACK: If no content found, look for modal containers
+            if (roots.length === 0) {
+                // Query for potential overlay roots
+                const potentialOverlays = Array.from(document.querySelectorAll(
+                    '[role="dialog"], [role="alertdialog"], .modal, .dialog, .popup, ' +
+                     '.mantine-Modal-root, .mantine-Drawer-root, .mantine-Popover-dropdown' // Added Drawer
+                )) as HTMLElement[];
 
-                // --- NEW: Try to find a specific content container inside ---
-                overlayContentRoot = activeOverlay.querySelector(
-                    // Common content containers (add more if needed)
-                    '.mantine-Modal-content, .mantine-Drawer-content, .mantine-Dialog-root, .modal-content, .dialog-content, [role="document"]'
-                );
+                // Filter for visibility
+                const visibleOverlays = potentialOverlays.filter(el => {
+                    try {
+                        const style = window.getComputedStyle(el);
+                        // Check display, visibility, and opacity (more robust)
+                        return style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity || '1') > 0;
+                    } catch (e) { return false; }
+                });
 
-                if (overlayContentRoot) {
-                    console.log(`[RobustFinder]   Using specific content root within overlay:`, overlayContentRoot);
-                    roots.push({ name: 'Active Overlay Content', root: overlayContentRoot });
-                } else {
-                    // Fallback: Use the detected overlay root itself
-                    console.log(`[RobustFinder]   No specific content root found, using overlay root itself.`);
-                    roots.push({ name: 'Active Overlay Root', root: activeOverlay });
+                if (visibleOverlays.length > 0) {
+                    // Sort by z-index to find the topmost one
+                    visibleOverlays.sort((a, b) => {
+                        const zIndexA = parseInt(window.getComputedStyle(a).zIndex) || 0;
+                        const zIndexB = parseInt(window.getComputedStyle(b).zIndex) || 0;
+                        return zIndexB - zIndexA;
+                    });
+                    visibleOverlays.forEach((el, i) => 
+                        roots.push({ name: `Overlay Root ${i+1}`, root: el }));
                 }
-                // --- END NEW ---
             }
         } catch (e) {
-            console.warn('[RobustFinder] Error detecting overlay elements:', e);
+            console.warn('[RobustFinder] Error detecting modal elements:', e);
         }
-
-        // Always add the main document as the last resort
+        
+        // Always add document as fallback
         roots.push({ name: 'Document', root: document });
         console.log('[RobustFinder] Search roots determined:', roots.map(r => r.name));
         return roots;
@@ -413,6 +438,38 @@ export class RobustElementFinder {
             xpath = xpath.replace(/^\/\/\//, '//');
             return xpath;
         }
+    }
+
+    private static isTextMatch(element: HTMLElement, targetText: string): boolean {
+        if (!targetText) return true;
+        
+        const elementText = element.textContent?.trim() || '';
+        const innerText = element.innerText?.trim() || '';
+        
+        // 1. First try exact matches (most reliable)
+        if (elementText === targetText || innerText === targetText) return true;
+        
+        // 2. For buttons and inputs, be more flexible
+        if (element.tagName === 'BUTTON' || element.tagName === 'INPUT' ||
+            element.getAttribute('role') === 'button' || 
+            element.getAttribute('type') === 'submit') {
+            
+            const targetLower = targetText.toLowerCase();
+            const elementLower = elementText.toLowerCase();
+            
+            // Is this submit/ok/confirm button text?
+            const isCommonAction = ['submit', 'ok', 'yes', 'confirm'].some(
+                action => targetLower.includes(action) || elementLower.includes(action)
+            );
+            
+            if (isCommonAction) {
+                // For common action buttons, more permissive matching
+                return elementLower.includes(targetLower) || targetLower.includes(elementLower);
+            }
+        }
+        
+        // 3. Don't match when texts are completely different (avoid false positives)
+        return false;
     }
 
 } 
