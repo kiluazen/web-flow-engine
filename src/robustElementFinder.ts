@@ -282,75 +282,152 @@ export class RobustElementFinder {
         textFilter?: string
     ): void {
         let strategyFoundCount = 0;
-        
-        // First search in all modal/overlay containers
-        const modalRoots = roots.filter(r => 
-            r.name.includes('Modal') || r.name.includes('Overlay'));
-            
-        // Then search in document only if no results found in modals
-        const documentRoots = roots.filter(r => 
-            !r.name.includes('Modal') && !r.name.includes('Overlay'));
-            
-        // Prioritize modal searching before falling back to document
-        const orderedRoots = [...modalRoots, ...documentRoots];
-        
-        for (const { name, root } of orderedRoots) {
+        let foundInNonDocumentRoot = false; // Track if found outside Document
+
+        // Prioritize non-Document roots
+        const nonDocumentRoots = roots.filter(r => r.name !== 'Document');
+        const documentRoot = roots.find(r => r.name === 'Document');
+
+        // 1. Search in non-Document roots first
+        for (const { name, root } of nonDocumentRoots) {
             try {
-                 // Log the context root being searched
                  if(this.debugMode) console.log(`[RobustFinder]   Searching in root "${name}" context:`, root);
                  const foundElements = root.querySelectorAll(selector);
 
-                 if (foundElements.length > 0) {
+                 if (foundElements.length > 0 && this.debugMode) { // Log only if debug enabled
                      console.log(`[RobustFinder]   ${strategyName} in ${name}: Selector "${selector}" initially found ${foundElements.length} element(s).`);
                  }
 
                  foundElements.forEach(element => {
                     if (element instanceof HTMLElement) {
+                        // Use the improved visibility check
                         const isVisible = this.isElementPotentiallyVisible(element);
                         const passesTextCheck = !textFilter || this.fuzzyTextMatch(element, textFilter);
 
                         if (passesTextCheck && isVisible) {
                             if (!candidates.has(element)) {
-                                candidates.set(element, `${strategyName} (in ${name})`); // Note context
+                                candidates.set(element, `${strategyName} (in ${name})`);
                                 strategyFoundCount++;
+                                foundInNonDocumentRoot = true; // Mark success in non-doc root
                                 console.log(`[RobustFinder]     + Added candidate from ${name} via ${strategyName} (Visible: ${isVisible}, TextMatch: ${passesTextCheck}):`, element.tagName, element.id);
                             }
                         }
-                        // Optional: Log skipped elements only in debug mode
-                        // else if (this.debugMode) { ... }
                     }
                 });
 
             } catch (e) {
-                // Be less noisy about standard invalid selectors unless debugging
                  if (!(e instanceof DOMException && e.message.includes("is not a valid selector"))) {
                      console.warn(`[RobustFinder] Error executing selector "${selector}" in ${name} via ${strategyName}:`, e);
                  } else if (this.debugMode) {
                      console.log(`[RobustFinder] Info: Selector "${selector}" is invalid for querySelectorAll in ${name}.`);
                  }
             }
-        }
+        } // End of non-Document root search
+
+        // 2. Search in Document root ONLY if nothing was found elsewhere for this strategy
+        if (!foundInNonDocumentRoot && documentRoot) {
+            const { name, root } = documentRoot;
+             try {
+                 if(this.debugMode) console.log(`[RobustFinder]   Searching in root "${name}" context (fallback):`, root);
+                 const foundElements = root.querySelectorAll(selector);
+
+                  if (foundElements.length > 0) { // Log only if found (less noise)
+                     console.log(`[RobustFinder]   ${strategyName} in ${name}: Selector "${selector}" initially found ${foundElements.length} element(s).`);
+                 }
+
+                 foundElements.forEach(element => {
+                    if (element instanceof HTMLElement) {
+                         const isVisible = this.isElementPotentiallyVisible(element);
+                         const passesTextCheck = !textFilter || this.fuzzyTextMatch(element, textFilter);
+
+                        if (passesTextCheck && isVisible) {
+                            if (!candidates.has(element)) {
+                                candidates.set(element, `${strategyName} (in ${name})`);
+                                strategyFoundCount++;
+                                console.log(`[RobustFinder]     + Added candidate from ${name} via ${strategyName} (Visible: ${isVisible}, TextMatch: ${passesTextCheck}):`, element.tagName, element.id);
+                            }
+                        }
+                    }
+                });
+            } catch (e) {
+                 if (!(e instanceof DOMException && e.message.includes("is not a valid selector"))) {
+                     console.warn(`[RobustFinder] Error executing selector "${selector}" in ${name} via ${strategyName}:`, e);
+                 } else if (this.debugMode) {
+                     console.log(`[RobustFinder] Info: Selector "${selector}" is invalid for querySelectorAll in ${name}.`);
+                 }
+            }
+        } // End of Document root search
+
         if (strategyFoundCount > 0) {
             console.log(`[RobustFinder]   ${strategyName} added ${strategyFoundCount} new candidate(s) to the list.`);
         }
     }
 
-    /** Enhanced visibility check with detailed logging - simplified logs */
+    /** Enhanced visibility check inspired by common pitfalls and robust solutions */
     private static isElementPotentiallyVisible(element: HTMLElement): boolean {
-        const hasDimensions = element.offsetWidth > 0 && element.offsetHeight > 0;
-        const hasClientRects = element.getClientRects().length > 0;
-        const hasChildren = element.children.length > 0;
-        const isContainer = element.tagName === 'DIV' || element.tagName === 'SECTION' || 
-                           element.tagName === 'ARTICLE' || element.tagName === 'MAIN' ||
-                           element.tagName === 'HEADER' || element.tagName === 'FOOTER' || 
-                           element.tagName === 'NAV';
+        if (!element || !element.isConnected) {
+             if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: Element not connected`);
+            return false; // Element must be in the DOM
+        }
+
+        // Check HTML 'hidden' attribute
+        if (element.hidden) {
+            if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: Has hidden attribute`);
+            return false;
+        }
+
         const style = window.getComputedStyle(element);
-        const isHiddenByCSS = style.display === 'none' || style.visibility === 'hidden' || 
-                              parseFloat(style.opacity || '1') === 0;
-        const isVisible = hasDimensions || hasClientRects || (hasChildren && isContainer && !isHiddenByCSS);
-        // REMOVED per-element visibility check log
-        // console.log(`[RobustFinder-VERIFY] Visibility check: <${element.tagName.toLowerCase()}...`);
-        return isVisible;
+
+        // Check basic CSS properties
+        if (style.display === 'none') {
+             if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: display: none`);
+            return false;
+        }
+        if (style.visibility === 'hidden') {
+             if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: visibility: hidden`);
+            return false;
+        }
+        // Check opacity (allow tolerance for floating point issues)
+        if (parseFloat(style.opacity || '1') < 0.01) {
+             if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: opacity < 0.01`);
+            return false;
+        }
+
+        // Check dimensions: offsetWidth/Height are good but fail on inline elements.
+        // getClientRects() is more robust but can be fooled by overflow:hidden or small elements.
+        const hasDimensions = element.offsetWidth > 0 || element.offsetHeight > 0 || element.getClientRects().length > 0;
+        if (!hasDimensions) {
+            // Allow zero-size containers if they have visible children (simplified check)
+            if (!(element.children.length > 0 && style.overflow === 'visible')) {
+                if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: No dimensions`);
+                return false;
+            }
+        }
+
+        // Optional: Basic viewport check (can be fooled by fixed elements, refine if needed)
+        const rect = element.getBoundingClientRect();
+        const isInViewport = rect.top < window.innerHeight && rect.bottom > 0 &&
+                             rect.left < window.innerWidth && rect.right > 0;
+
+        if (!isInViewport) {
+            // Elements outside the viewport might still be valid candidates if scrollable,
+            // but this provides a basic filter. Keep if element must be initially visible.
+            // Consider removing this if elements outside initial view are common targets.
+             if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: Outside viewport (Top: ${rect.top}, Bottom: ${rect.bottom}, Left: ${rect.left}, Right: ${rect.right})`);
+            // return false; // Uncomment this line to strictly enforce initial viewport presence
+        }
+
+        // Check parent visibility (simplified - full recursion is expensive)
+        const parent = element.parentElement;
+        if (parent) {
+            const parentStyle = window.getComputedStyle(parent);
+            if (parentStyle.display === 'none' || parentStyle.visibility === 'hidden') {
+                if(this.debugMode) console.log(`[RobustFinder-Visibility] Fail: Parent is hidden`);
+                return false;
+            }
+        }
+         if(this.debugMode) console.log(`[RobustFinder-Visibility] Pass for ${element.tagName}#${element.id}`);
+        return true; // Passed all checks
     }
 
     /** Parses the attributes string/object */
