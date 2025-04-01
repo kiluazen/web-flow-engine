@@ -730,7 +730,7 @@ export default class CursorFlow {
       this.debugLog('Finding candidate elements using RobustElementFinder...');
       console.time('Find candidate elements');
       RobustElementFinder.setDebugMode(this.options.debug || false);
-      let candidateElements = RobustElementFinder.findCandidates(interaction);
+      let candidateElements = await RobustElementFinder.findCandidates(interaction);
       console.timeEnd('Find candidate elements');
       this.debugLog(`RobustFinder found ${candidateElements.length} candidate(s).`);
 
