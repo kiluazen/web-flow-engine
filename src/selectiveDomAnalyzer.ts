@@ -164,10 +164,15 @@ export class SelectiveDomAnalyzer {
 
         // Always log the result
         const duration = performance.now() - checkStartTime;
-        if (isValid) {
-            console.log(`[SelectiveDomAnalyzer] Validation PASSED for ${element.tagName}#${element.id} (took ${duration.toFixed(2)}ms)`);
-        } else {
-            console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: ${failureReason} (took ${duration.toFixed(2)}ms)`);
+        if (this.debugMode) {
+            if (isValid) {
+                console.log(`[SelectiveDomAnalyzer] Validation PASSED for ${element.tagName}#${element.id} (took ${duration.toFixed(2)}ms)`);
+            } else {
+                console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: ${failureReason} (took ${duration.toFixed(2)}ms)`);
+            }
+        } else if (!isValid) {
+            // When not in debug mode, only log failures
+            console.warn(`[SelectiveDomAnalyzer] Validation FAILED: ${failureReason}`);
         }
 
         return isValid;
