@@ -37,7 +37,15 @@ export class SelectiveDomAnalyzer {
      */
     static validateCandidateElement(element: HTMLElement, interaction?: any): boolean {
         if (!element || !(element instanceof HTMLElement)) {
-            console.log('[SelectiveDomAnalyzer] Validation failed: Invalid element provided.');
+            // Keep logs minimal unless debugging
+            // console.log('[SelectiveDomAnalyzer] Validation failed: Invalid element provided.');
+            return false;
+        }
+         // Check if the element is still connected to the DOM
+        if (!element.isConnected) {
+            if (this.debugMode) {
+                console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: Element not connected to DOM.`);
+            }
             return false;
         }
 
@@ -45,26 +53,19 @@ export class SelectiveDomAnalyzer {
         let isValid = true;
         let failureReason = '';
 
-        // --- NEW: Check if element is in viewport and scroll to it if needed ---
-        const isInView = this.isElementInViewport(element);
-        if (!isInView) {
-            console.log('[SelectiveDomAnalyzer] Element is out of viewport, scrolling into view before validation');
-            this.scrollElementIntoView(element);
-            // Add a small delay to allow the scroll to complete
-            const scrollDelay = 300; // milliseconds
-            const scrollStartTime = performance.now();
-            // Use synchronous waiting to ensure scrolling completes before validation
-            while (performance.now() - scrollStartTime < scrollDelay) {
-                // Busy wait - not ideal but keeps method synchronous
-                // Just enough delay for the browser to update position
-            }
-        }
-        // --- End scroll into view logic ---
+        // --- REMOVED: Automatic scroll-into-view from validation check ---
+        // const isInView = this.isElementInViewport(element);
+        // if (!isInView) {
+        //     console.log('[SelectiveDomAnalyzer] Element is out of viewport, scrolling into view before validation');
+        //     this.scrollElementIntoView(element);
+        //     // ... scroll delay logic removed ...
+        // }
+        // --- End removal ---
 
         // 1. Visibility Check
         if (!this.isElementVisible(element)) {
             isValid = false;
-            failureReason = 'Element not visible (size, display, visibility)';
+            failureReason = 'Element not visible (size, display, visibility, DOM connection)';
         }
 
         // 2. Interactivity Check (only if visible)
@@ -123,9 +124,16 @@ export class SelectiveDomAnalyzer {
         // 7. Key Attribute Check (Example: href for <a> tags)
         // Note: Parsing attributes can be complex. Start simple.
         const originalAttributes = interaction?.element?.attributes;
-        if (isValid && originalAttributes && typeof originalAttributes === 'string') { // Simple check for string format
-            try {
-                const parsedAttrs = JSON.parse(originalAttributes);
+        // Ensure we check if parsedAttrs exists before accessing properties
+        if (isValid && originalAttributes) {
+            let parsedAttrs: Record<string, any> | null = null;
+            if (typeof originalAttributes === 'string') {
+                try { parsedAttrs = JSON.parse(originalAttributes); } catch (e) { /* ignore parse error */ }
+            } else if (typeof originalAttributes === 'object') {
+                parsedAttrs = originalAttributes;
+            }
+
+            if (parsedAttrs) {
                 if (element.tagName === 'A' && parsedAttrs.href) {
                     const candidateHref = element.getAttribute('href');
                     // Basic comparison (could be enhanced for relative/absolute URLs)
@@ -137,9 +145,18 @@ export class SelectiveDomAnalyzer {
                          failureReason = 'href mismatch';
                     }
                 }
+                 // Add check for 'name' attribute on INPUT elements
+                if (element.tagName === 'INPUT' && parsedAttrs.name) {
+                     const candidateName = element.getAttribute('name');
+                     if (candidateName !== parsedAttrs.name) {
+                         if (this.debugMode) {
+                             console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: name attribute mismatch (Expected: ${parsedAttrs.name}, Found: ${candidateName})`);
+                         }
+                         isValid = false;
+                         failureReason = 'name mismatch';
+                     }
+                }
                 // TODO: Add checks for other key attributes (e.g., type for input, role)
-            } catch (e) {
-                console.warn("[SelectiveDomAnalyzer] Failed to parse original attributes for validation:", originalAttributes, e);
             }
         }
         

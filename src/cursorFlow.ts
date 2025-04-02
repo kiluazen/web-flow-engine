@@ -32,6 +32,7 @@ export default class CursorFlow {
     private sortedSteps: any[] = [];
     private isHandlingNavigation = false;
     private thinkingIndicator: HTMLElement | null = null;
+    private validationLoopId: number | null = null;
   
     constructor(options: CursorFlowOptions) {
       // Initialize with default options
@@ -445,6 +446,9 @@ export default class CursorFlow {
     }
   
     stop(notificationOptions?: StopNotificationOptions) {
+      // Stop the validation loop if it's running
+      this.stopValidationLoop();
+
       // If notification options provided, show notification
       if (notificationOptions) {
         CursorFlowUI.showNotification({
@@ -654,8 +658,11 @@ export default class CursorFlow {
     
     private async playCurrentStep() {
       // ADDED: Log this.options.debug at the start of the function
-      console.log(`[DEBUG-VERIFY] playCurrentStep called. this.options.debug = ${this.options.debug}`);
-      
+      this.debugLog(`[DEBUG-VERIFY] playCurrentStep called. this.options.debug = ${this.options.debug}`);
+
+      // Ensure any previous validation loop is stopped before starting a new step
+      this.stopValidationLoop();
+
       // Hide thinking indicator when starting to play a step
       if (this.thinkingIndicator) {
         CursorFlowUI.hideThinkingIndicator(this.thinkingIndicator);
@@ -799,12 +806,16 @@ export default class CursorFlow {
       this.debugLog('Successfully identified target element:', this.currentTargetElement.outerHTML.substring(0, 150) + '...');
 
       console.time('Show visual elements');
+      // Ensure scrolling happens *before* validation loop starts
       await this.showVisualElements(this.currentTargetElement, interaction);
       console.timeEnd('Show visual elements');
 
       console.time('Setup interaction tracking');
       this.setupElementInteractionTracking(this.currentTargetElement, interaction);
       console.timeEnd('Setup interaction tracking');
+
+      // Start the validation loop *after* visuals and tracking are set up
+      this.startValidationLoop();
 
       return true;
     }
@@ -863,14 +874,20 @@ export default class CursorFlow {
     }
   
     private hideVisualElements() {
-      // Clean up UI elements - Change keepCursor to false to remove the cursor on completion/stop
-      CursorFlowUI.cleanupAllUI(false, true); // Changed first argument from true to false
+      // Stop the validation loop when hiding elements between steps
+      this.stopValidationLoop();
 
-      // Reset references
+      // Clean up UI elements - Change keepCursor to false to remove the cursor on completion/stop
+      // Keep cursor true between steps, false on final stop/completion
+      const keepCursor = this.state.isPlaying; // Keep cursor if still playing
+      CursorFlowUI.cleanupAllUI(keepCursor, true); // Keep notifications
+
+      // Reset references ONLY for elements being cleaned up
       this.highlightElement = null;
+      // Don't reset cursorElement if keepCursor is true
 
       if (this.options.debug) {
-        console.log('Visual elements hidden and cleaned up (including cursor)'); // Updated log message
+        console.log(`Visual elements hidden/cleaned up ${keepCursor ? '(keeping cursor)' : '(removing cursor)'}`);
       }
     }
   
@@ -1097,6 +1114,9 @@ export default class CursorFlow {
               return; // Ignore events bubbling up from outside the target
           }
 
+          // Stop the validation loop as soon as a valid interaction starts
+          this.stopValidationLoop();
+
           // Validate interaction (e.g., check input value if needed)
           if (this.validateInteraction(event, interaction)) {
               this.debugLog('Interaction validated successfully.');
@@ -1232,18 +1252,21 @@ export default class CursorFlow {
     }
   
     private removeExistingListeners() {
-      if (this.currentTargetElement && this.currentListener && this.currentInteractionType) {
-        const eventType = this.getEventTypeForInteraction(this.currentInteractionType);
-        if (eventType) {
-           // Ensure listener removal happens correctly, especially with capture phase
-           this.currentTargetElement.removeEventListener(eventType, this.currentListener, { capture: true });
-           this.debugLog(`Removed ${eventType} listener from element:`, this.currentTargetElement);
+        // Stop validation loop when listeners are removed (e.g., before moving to next step)
+        this.stopValidationLoop();
+
+        if (this.currentTargetElement && this.currentListener && this.currentInteractionType) {
+          const eventType = this.getEventTypeForInteraction(this.currentInteractionType);
+          if (eventType) {
+             // Ensure listener removal happens correctly, especially with capture phase
+             this.currentTargetElement.removeEventListener(eventType, this.currentListener, { capture: true });
+             this.debugLog(`Removed ${eventType} listener from element:`, this.currentTargetElement);
+          }
         }
-      }
-       // Reset tracking properties *after* removing
-      this.currentListener = null;
-      this.currentInteractionType = null;
-      // this.currentTargetElement = null; // Don't nullify currentTargetElement here, it's needed elsewhere
+         // Reset tracking properties *after* removing
+        this.currentListener = null;
+        this.currentInteractionType = null;
+        // this.currentTargetElement = null; // Don't nullify currentTargetElement here, it's needed elsewhere
     }
     private handleInteractionError() {
       CursorFlowUI.showErrorNotification(
@@ -1287,6 +1310,8 @@ export default class CursorFlow {
   
     // Add a new method for guide completion
     private completeGuide() {
+      this.stopValidationLoop(); // Stop loop on completion
+
       if (this.options.debug) {
         console.log('Guide completed');
       }
@@ -1297,18 +1322,13 @@ export default class CursorFlow {
       // Save state immediately since this is the final state
       StateManager.saveWithDebounce(this.state, true);
       
-      // Show completion popup near the guide button
-      if (this.startButton) {
-        CursorFlowUI.showCompletionPopup(this.startButton);
-      }
-      
       // Clean up
       this.hideVisualElements();
       this.updateButtonState();
       
-      // Also show notification for extra visibility
+      // Show completion notification with simple message
       CursorFlowUI.showNotification({
-        message: 'Guide completed! 🎉',
+        message: 'Guide Completed! 🎉',
         type: 'success',
         autoClose: 5000
       });
@@ -1329,6 +1349,9 @@ export default class CursorFlow {
     }
 
     private completeStep(stepIdentifier: number) { // Use position or index
+      // Stop validation loop when step is successfully completed
+      this.stopValidationLoop();
+
       if (!this.state.completedSteps.includes(stepIdentifier)) {
         this.state.completedSteps.push(stepIdentifier);
         StateManager.saveWithDebounce(this.state); // Debounced save
@@ -1378,4 +1401,83 @@ export default class CursorFlow {
             return false;
         }
     }
-  }
+
+    // --- NEW Methods for Validation Loop ---
+
+    private startValidationLoop() {
+        // Ensure no loop is already running
+        this.stopValidationLoop();
+
+        if (!this.state.isPlaying) return; // Don't start if not playing
+
+        this.debugLog('Starting validation loop for current step.');
+
+        const loopFn = () => {
+            if (!this.state.isPlaying || !this.currentTargetElement || this.validationLoopId === null) {
+                // Stop conditions: not playing, no target, or loop explicitly stopped
+                this.validationLoopId = null; // Ensure it's null if stopping implicitly
+                return;
+            }
+
+            // Use a try-catch block for safety during validation
+            try {
+                // Check if the element is still connected to the DOM *before* validation
+                 if (!this.currentTargetElement.isConnected) {
+                    this.debugLog('Target element disconnected from DOM. Handling step invalidation.');
+                    this.handleStepInvalidation('Element removed from DOM');
+                    return; // Stop the loop
+                }
+
+                // Perform the validation
+                 const isValid = SelectiveDomAnalyzer.validateCandidateElement(this.currentTargetElement);
+
+                if (!isValid) {
+                    this.debugLog('Target element failed validation check. Handling step invalidation.');
+                    this.handleStepInvalidation('Element became invalid (hidden, occluded, etc.)');
+                    return; // Stop the loop
+                }
+            } catch (error) {
+                console.error('[CursorFlow] Error during validation loop:', error);
+                // Optionally stop the guide on error, or just log and continue
+                // this.handleStepInvalidation('Error during element validation');
+                // return;
+            }
+
+
+            // If still valid, request the next frame
+            this.validationLoopId = requestAnimationFrame(loopFn);
+        };
+
+        // Start the loop
+        this.validationLoopId = requestAnimationFrame(loopFn);
+    }
+
+    private stopValidationLoop() {
+        if (this.validationLoopId !== null) {
+            this.debugLog('Stopping validation loop.');
+            cancelAnimationFrame(this.validationLoopId);
+            this.validationLoopId = null;
+        }
+    }
+
+    private handleStepInvalidation(reason: string) {
+        this.debugLog(`Handling Step Invalidation: ${reason}`);
+        this.stopValidationLoop(); // Ensure loop is stopped
+
+        // Show notification similar to handleNavigation's failure case
+        CursorFlowUI.showNotification({
+            message: 'Oops! Looks like the context changed unexpectedly.',
+            type: 'warning',
+            autoClose: 5000
+        });
+
+        // Stop the guide after a short delay to allow notification to be seen
+        setTimeout(() => {
+            this.stop({
+                message: 'Guide stopped due to unexpected context change.',
+                type: 'warning'
+            });
+        }, 100);
+    }
+    // --- End NEW Methods ---
+}

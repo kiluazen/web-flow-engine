@@ -1005,61 +1005,6 @@ export class CursorFlowUI {
     return notification;
   }
 
-  static showCompletionPopup(guideButton: HTMLElement): HTMLElement {
-    // Create popup near the guide button
-    const popup = document.createElement('div');
-    popup.className = 'hyphen-completion-popup';
-    
-    // Style the popup
-    popup.style.position = 'fixed';
-    popup.style.backgroundColor = '#4CAF50';
-    popup.style.color = '#ffffff';
-    popup.style.padding = '10px 15px';
-    popup.style.borderRadius = '4px';
-    popup.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
-    popup.style.fontSize = '14px';
-    popup.style.zIndex = '10001';
-    popup.style.maxWidth = '300px';
-    
-    // Set content
-    popup.textContent = 'Guide Completed! 🎉';
-    
-    // Add to DOM
-    document.body.appendChild(popup);
-    
-    // Position near the guide button - consistent with notifications
-    const buttonRect = guideButton.getBoundingClientRect();
-    popup.style.bottom = `${buttonRect.height + 20}px`;
-    popup.style.right = '20px';
-    
-    // Add animation class
-    popup.style.animation = 'hyphen-popup-fade 5s forwards';
-    
-    // Add animation keyframes if they don't exist
-    if (!document.getElementById('hyphenbox-animations')) {
-      const style = document.createElement('style');
-      style.id = 'hyphenbox-animations';
-      style.textContent = `
-        @keyframes hyphen-popup-fade {
-          0% { opacity: 0; transform: translateY(5px); }
-          10% { opacity: 1; transform: translateY(0); }
-          90% { opacity: 1; transform: translateY(0); }
-          100% { opacity: 0; transform: translateY(-5px); }
-        }
-      `;
-      document.head.appendChild(style);
-    }
-    
-    // Remove after animation completes
-    setTimeout(() => {
-      if (popup.parentNode) {
-        popup.parentNode.removeChild(popup);
-      }
-    }, 5000);
-    
-    return popup;
-  }
-
   static showErrorNotification(message: string, options: ErrorNotificationOptions): HTMLElement {
     // Add retry, skip, and stop buttons
     const buttons = [];
