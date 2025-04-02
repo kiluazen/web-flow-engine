@@ -45,6 +45,22 @@ export class SelectiveDomAnalyzer {
         let isValid = true;
         let failureReason = '';
 
+        // --- NEW: Check if element is in viewport and scroll to it if needed ---
+        const isInView = this.isElementInViewport(element);
+        if (!isInView) {
+            console.log('[SelectiveDomAnalyzer] Element is out of viewport, scrolling into view before validation');
+            this.scrollElementIntoView(element);
+            // Add a small delay to allow the scroll to complete
+            const scrollDelay = 300; // milliseconds
+            const scrollStartTime = performance.now();
+            // Use synchronous waiting to ensure scrolling completes before validation
+            while (performance.now() - scrollStartTime < scrollDelay) {
+                // Busy wait - not ideal but keeps method synchronous
+                // Just enough delay for the browser to update position
+            }
+        }
+        // --- End scroll into view logic ---
+
         // 1. Visibility Check
         if (!this.isElementVisible(element)) {
             isValid = false;
@@ -262,6 +278,28 @@ export class SelectiveDomAnalyzer {
             return false;
         }
 
+        // Check if the element is a common interactive element based on tag name or role
+        // These elements are more likely to be valid targets even if partially obscured
+        const isCommonInteractive = 
+            ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'].includes(element.tagName) ||
+            ['button', 'link', 'checkbox', 'radio'].includes(element.getAttribute('role') || '');
+
+        // Check if element is in a modal/dialog context
+        const isInModal = 
+            element.closest('[role="dialog"]') !== null ||
+            element.closest('.modal') !== null ||
+            element.closest('.mantine-Modal-content') !== null ||
+            element.closest('[data-portal="true"]') !== null;
+
+        // For interactive elements in modals, we can be more lenient
+        // as they often have complex layering that might trigger false positives
+        if (isCommonInteractive && isInModal) {
+            if (this.debugMode) {
+                console.log(`[SelectiveDomAnalyzer] Element ${element.tagName}#${element.id} is an interactive element in a modal context - skipping strict occlusion check`);
+            }
+            return true;
+        }
+
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
         const checkX = Math.max(0, Math.min(centerX, window.innerWidth - 1));
@@ -295,6 +333,41 @@ export class SelectiveDomAnalyzer {
             }
             if (!isRelated && element.contains(topElementAtPoint)) {
                 isRelated = true;
+            }
+
+            // If the element is not the top element at its center point,
+            // try checking additional points for robustness
+            if (!isRelated) {
+                // For buttons and links in modals, check additional points
+                // like top edge, bottom edge, or quarter points
+                if (isCommonInteractive && isInModal) {
+                    // Try a few more points before giving up
+                    const additionalPoints = [
+                        { x: rect.left + rect.width * 0.25, y: rect.top + rect.height * 0.25 },
+                        { x: rect.left + rect.width * 0.75, y: rect.top + rect.height * 0.25 },
+                        { x: rect.left + rect.width * 0.25, y: rect.top + rect.height * 0.75 },
+                        { x: rect.left + rect.width * 0.75, y: rect.top + rect.height * 0.75 }
+                    ];
+                    
+                    for (const point of additionalPoints) {
+                        const checkPointX = Math.max(0, Math.min(point.x, window.innerWidth - 1));
+                        const checkPointY = Math.max(0, Math.min(point.y, window.innerHeight - 1));
+                        
+                        let pointElement = doc.elementFromPoint(checkPointX, checkPointY);
+                        if (!pointElement) continue;
+                        
+                        current = pointElement;
+                        while (current) {
+                            if (current === element) {
+                                isRelated = true;
+                                break;
+                            }
+                            current = current.parentElement;
+                        }
+                        
+                        if (isRelated) break;
+                    }
+                }
             }
 
             if (!isRelated) {
@@ -335,4 +408,38 @@ export class SelectiveDomAnalyzer {
 
         return false; // No match found
     }
+
+    // --- NEW: Helper methods for viewport detection and scrolling ---
+    private static isElementInViewport(element: HTMLElement): boolean {
+        const rect = element.getBoundingClientRect();
+        return (
+            rect.top >= 0 &&
+            rect.left >= 0 &&
+            rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+            rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+        );
+    }
+
+    private static scrollElementIntoView(element: HTMLElement): void {
+        try {
+            element.scrollIntoView({
+                behavior: 'auto', // Use 'auto' for immediate scrolling
+                block: 'center',   // Center the element vertically
+                inline: 'center'   // Center the element horizontally
+            });
+        } catch (e) {
+            // Fallback for browsers that don't support scrollIntoView with options
+            const rect = element.getBoundingClientRect();
+            const scrollX = window.scrollX || window.pageXOffset;
+            const scrollY = window.scrollY || window.pageYOffset;
+            
+            // Calculate center position
+            const elementTop = rect.top + scrollY;
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+            const scrollToY = elementTop - (viewportHeight / 2) + (rect.height / 2);
+            
+            window.scrollTo(scrollX, scrollToY);
+        }
+    }
+    // --- End new helper methods ---
 } 

@@ -815,13 +815,16 @@ export default class CursorFlow {
         this.cursorElement = CursorFlowUI.createCursor(this.options.theme || {});
       }
       
-      // Check if element is in view and scroll to it if needed
-      // Uses ElementUtils helper - this is fine as it's a generic DOM utility
-      if (!ElementUtils.isElementInView(targetElement)) {
+      // Check if element is in view and scroll to it if needed - always check, even if validation did some scrolling
+      // This ensures the element is properly centered for user visibility
+      const isInView = ElementUtils.isElementInView(targetElement);
+      if (!isInView) {
         if (this.options.debug) {
           console.log('[CursorFlow] Target element is not in view, scrolling to it');
         }
         await ElementUtils.scrollToElement(targetElement);
+      } else if (this.options.debug) {
+        console.log('[CursorFlow] Target element is already in view, no need to scroll');
       }
       
       // Get annotation text
