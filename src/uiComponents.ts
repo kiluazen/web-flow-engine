@@ -976,16 +976,16 @@ export class CursorFlowUI {
     // Add to DOM
     document.body.appendChild(notification);
     
-    // Position next to the Guides button
+    // Position next to the Co-pilot button
     const guideButton = document.querySelector('.hyphen-start-button');
     if (guideButton) {
         const buttonRect = guideButton.getBoundingClientRect();
-        notification.style.bottom = `${buttonRect.height + 20}px`;
-        notification.style.right = '20px';
+        notification.style.bottom = `${20}px`; // Same bottom position as the button
+        notification.style.left = `${buttonRect.right + 10}px`; // Position 10px to the right of the button
     } else {
         // Fallback position if button not found
-        notification.style.bottom = '70px';
-        notification.style.right = '20px';
+        notification.style.bottom = '20px';
+        notification.style.left = '20px';
     }
     
     // Auto-close if specified (default to 2000ms for stop notifications)
