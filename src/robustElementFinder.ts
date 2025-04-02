@@ -113,35 +113,25 @@ export class RobustElementFinder {
                 }
             }
 
-            // --- Check Modal Results BEFORE falling back to Document ---
-            if (targetText && modalCandidates.size > 0) {
-                 const textBasedCandidates = Array.from(modalCandidates.entries())
-                    .filter(([_, strategy]) => strategy.includes('Tag + Text') || strategy.includes('Text-based XPath'))
-                    .map(([element, _]) => element);
-
-                 if (textBasedCandidates.length > 0) {
-                     console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED in Non-Document context prioritizing TEXT matches. Found ${textBasedCandidates.length} candidate(s):`);
-                     textBasedCandidates.forEach((element, index) => {
-                         const strategy = modalCandidates.get(element) || 'Unknown Text Strategy';
-                         console.log(`  - Candidate ${index + 1}: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
-                     });
-                     return textBasedCandidates; // Return only text-based matches from modal
-                 }
-                 // If text search was attempted but yielded no text-specific results, fall through to check *all* modal candidates
-            }
-
+            // --- Prioritize and Return Modal Results (if any) ---
             if (modalCandidates.size > 0) {
-                 // This block now primarily handles cases where targetText was null/empty,
-                 // or where text search was attempted but only non-text strategies (CSS, ID, Attr) found matches.
-                console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED in Non-Document context (Non-text strategies or fallback). Found ${modalCandidates.size} unique candidate(s):`);
-                modalCandidates.forEach((strategy, element) => {
-                   console.log(`  - Candidate: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
-                });
-                return Array.from(modalCandidates.keys()); // Success from modal/overlay
+                const prioritizedCandidates = this.prioritizeCandidates(modalCandidates, 'Non-Document');
+                if (prioritizedCandidates.length > 0) {
+                    console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED in Non-Document context. Found ${prioritizedCandidates.length} prioritized candidate(s).`);
+                    // Log the prioritized candidates for debugging
+                    prioritizedCandidates.forEach((element, index) => {
+                        const strategy = modalCandidates.get(element) || 'Unknown';
+                        console.log(`  - Prioritized Candidate ${index + 1}: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
+                    });
+                    return prioritizedCandidates;
+                }
+                // If prioritization resulted in an empty list (shouldn't normally happen if size > 0), 
+                // fall through to document search just in case.
+                console.warn("[RobustFinder] Modal candidates existed but prioritization yielded none. Falling through.");
             }
 
-            // --- Fallback: Run strategies on Document root ONLY if no modal candidates found ---
-            console.log(`[RobustFinder] Attempt ${attempt + 1} - No candidates found in Non-Document contexts. Falling back to Document root.`);
+            // --- Fallback: Run strategies on Document root ONLY if no modal candidates found or prioritized ---
+            console.log(`[RobustFinder] Attempt ${attempt + 1} - No prioritized candidates found in Non-Document contexts. Falling back to Document root.`);
             const documentCandidates = new Map<HTMLElement, string>();
 
             if (documentRoot) {
@@ -205,30 +195,19 @@ export class RobustElementFinder {
                  }
             }
 
-            // --- Final Check and Retry Logic ---
-            let finalCandidatesMap = documentCandidates; // Default to document candidates
-
-            if (targetText && documentCandidates.size > 0) {
-                const docTextBasedCandidatesMap = new Map<HTMLElement, string>();
-                 documentCandidates.forEach((strategy, element) => {
-                    if (strategy.includes('Tag + Text') || strategy.includes('Text-based XPath')) {
-                        docTextBasedCandidatesMap.set(element, strategy);
-                    }
-                 });
-
-                if (docTextBasedCandidatesMap.size > 0) {
-                     console.log(`[RobustFinder] Attempt ${attempt + 1} - Prioritizing TEXT matches from Document Fallback.`);
-                     finalCandidatesMap = docTextBasedCandidatesMap; // Use only text-based if found
+            // --- Prioritize and Return Document Results (if any) ---
+            if (documentCandidates.size > 0) {
+                const prioritizedCandidates = this.prioritizeCandidates(documentCandidates, 'Document Fallback');
+                if (prioritizedCandidates.length > 0) {
+                     console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED (Context: Document Fallback). Found ${prioritizedCandidates.length} prioritized candidate(s).`);
+                     // Log the prioritized candidates for debugging
+                     prioritizedCandidates.forEach((element, index) => {
+                        const strategy = documentCandidates.get(element) || 'Unknown';
+                        console.log(`  - Prioritized Candidate ${index + 1}: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
+                     });
+                     return prioritizedCandidates;
                 }
-                 // If no text-based found in document, use the original documentCandidates map
-            }
-
-            if (finalCandidatesMap.size > 0) {
-                 console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED (Context: Document Fallback). Found ${finalCandidatesMap.size} unique candidate(s):`);
-                 finalCandidatesMap.forEach((strategy, element) => {
-                    console.log(`  - Candidate: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
-                 });
-                 return Array.from(finalCandidatesMap.keys()); // Success
+                console.warn("[RobustFinder] Document candidates existed but prioritization yielded none.");
             }
 
             // If no candidates found and retries remain, wait and retry
@@ -244,6 +223,25 @@ export class RobustElementFinder {
         return []; // Return empty array if all retries fail
     }
 
+    // --- ADDED: Helper to prioritize candidates based on strategy --- 
+    private static prioritizeCandidates(candidates: Map<HTMLElement, string>, context: string): HTMLElement[] {
+        const priorityOrder = ['Escaped ID', 'Escaped CSS', 'Attributes', 'Tag + Text', 'Text-based XPath'];
+        
+        for (const priorityStrategy of priorityOrder) {
+            const matchingCandidates = Array.from(candidates.entries())
+                .filter(([_, strategy]) => strategy.includes(priorityStrategy))
+                .map(([element, _]) => element);
+            
+            if (matchingCandidates.length > 0) {
+                console.log(`[RobustFinder-Priority] Prioritizing candidates found via "${priorityStrategy}" in ${context} context.`);
+                return matchingCandidates;
+            }
+        }
+
+        // Should not be reached if candidates map is not empty, but return all as fallback.
+        console.warn(`[RobustFinder-Priority] No specific priority strategy matched in ${context}. Returning all candidates.`);
+        return Array.from(candidates.keys()); 
+    }
 
     // --- Helper Methods ---
 

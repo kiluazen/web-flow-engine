@@ -75,6 +75,60 @@ export class SelectiveDomAnalyzer {
             }
         }
 
+        // --- ADDED: Structural Validation against Original Data ---
+
+        // 5. Tag Name Check
+        const originalTagName = interaction?.element?.tagName;
+        if (isValid && originalTagName && element.tagName !== originalTagName) {
+            if (this.debugMode) {
+                 console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: Tag name mismatch (Expected: ${originalTagName}, Found: ${element.tagName})`);
+            }
+            isValid = false;
+            failureReason = 'Tag name mismatch';
+        }
+
+        // 6. ID Check
+        const originalId = interaction?.element?.id;
+        if (isValid && originalId && element.id !== originalId) {
+            // Allow partial matches for dynamic IDs (e.g., Mantine)
+            // Basic check: if original ID contains '-', assume dynamic potential
+            if (!originalId.includes('-')) { 
+                 if (this.debugMode) {
+                    console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: ID mismatch (Expected: ${originalId}, Found: ${element.id})`);
+                 }
+                isValid = false;
+                failureReason = 'ID mismatch';
+            } else if (this.debugMode) {
+                // Log if skipping due to potential dynamic ID
+                console.log(`[SelectiveDomAnalyzer] Skipping strict ID check for potential dynamic ID (Original: ${originalId}, Found: ${element.id})`);
+            }
+        }
+        
+        // 7. Key Attribute Check (Example: href for <a> tags)
+        // Note: Parsing attributes can be complex. Start simple.
+        const originalAttributes = interaction?.element?.attributes;
+        if (isValid && originalAttributes && typeof originalAttributes === 'string') { // Simple check for string format
+            try {
+                const parsedAttrs = JSON.parse(originalAttributes);
+                if (element.tagName === 'A' && parsedAttrs.href) {
+                    const candidateHref = element.getAttribute('href');
+                    // Basic comparison (could be enhanced for relative/absolute URLs)
+                    if (candidateHref !== parsedAttrs.href) {
+                         if (this.debugMode) {
+                             console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: href attribute mismatch (Expected: ${parsedAttrs.href}, Found: ${candidateHref})`);
+                         }
+                         isValid = false;
+                         failureReason = 'href mismatch';
+                    }
+                }
+                // TODO: Add checks for other key attributes (e.g., type for input, role)
+            } catch (e) {
+                console.warn("[SelectiveDomAnalyzer] Failed to parse original attributes for validation:", originalAttributes, e);
+            }
+        }
+        
+        // --- End Structural Validation ---
+
         // Always log the result
         const duration = performance.now() - checkStartTime;
         if (isValid) {
