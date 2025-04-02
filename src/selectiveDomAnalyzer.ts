@@ -257,18 +257,28 @@ export class SelectiveDomAnalyzer {
     }
 
     // --- Text Match Helper ---
+     // MODIFIED: Replaced with logic from RobustElementFinder.fuzzyTextMatch
      private static isTextMatch(element: HTMLElement, targetText: string | undefined): boolean {
         if (targetText === undefined || targetText === null) return true; // No text to match
 
-        const elementText = element.textContent?.trim() || '';
-        const searchText = targetText.trim();
+        const elementText = (element.textContent || "").trim();
+        const elementInnerText = (element.innerText || "").trim(); 
+        const elementValue = (element as HTMLInputElement).value?.trim(); // Check input value
+        const search = targetText.trim();
 
-        // Add flexibility: check innerText and value as well
-        const innerText = element.innerText?.trim() || '';
-        const value = (element as HTMLInputElement).value?.trim(); // Check input value
+        // Exact match check
+        if (elementInnerText === search || elementText === search || (elementValue && elementValue === search)) {
+            return true;
+        }
 
-        return elementText === searchText ||
-               innerText === searchText ||
-               (value !== undefined && value === searchText);
+        // Fuzzy match check (case-insensitive contains)
+        const searchLower = search.toLowerCase();
+        if (elementInnerText.toLowerCase().includes(searchLower) || 
+            elementText.toLowerCase().includes(searchLower) ||
+            (elementValue && elementValue.toLowerCase().includes(searchLower))) {
+            return true; 
+        }
+
+        return false; // No match found
     }
 } 
