@@ -34,6 +34,7 @@ export default class CursorFlow {
     private thinkingIndicator: HTMLElement | null = null;
     private validationLoopId: number | null = null;
     private isLoadingGuide = false;
+    private operationToken: string = '';
   
     constructor(options: CursorFlowOptions) {
       // Initialize with default options
@@ -66,6 +67,8 @@ export default class CursorFlow {
       if (this.options.debug) {
         console.log('CursorFlow initialized with options:', this.options);
       }
+      
+      this.operationToken = this.generateToken();
     }
   
     async init(): Promise<boolean> {
@@ -247,6 +250,10 @@ export default class CursorFlow {
         (guideData) => {
           console.log('Selected guide:', guideData);
           
+          // IMPORTANT: Generate a new operation token to cancel any in-flight operations
+          this.operationToken = this.generateToken();
+          const currentToken = this.operationToken;
+          
           // Update state to playing immediately
           this.state.isPlaying = true;
           
@@ -258,27 +265,46 @@ export default class CursorFlow {
             this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton);
           }
           
-          // Start loading the guide
-          this.retrieveGuideData(guideData.id);
+          // Start loading the guide, passing the current token
+          this.retrieveGuideData(guideData.id, currentToken);
         }
       );
     }
   
-    private async retrieveGuideData(guideId: string) {
+    private async retrieveGuideData(guideId: string, token: string) {
       try {
-        // Fetch recording data - now returns the full flow with steps
+        // Validate token at the start of operation
+        if (token !== this.operationToken) {
+          console.log('Operation was cancelled, aborting guide retrieval');
+          return;
+        }
+        
+        // Fetch recording data
         const flowData = await this.apiClient.getRecording(guideId);
+        
+        // Check token again after async operation
+        if (token !== this.operationToken) {
+          console.log('Operation was cancelled during API fetch, aborting guide processing');
+          return;
+        }
+        
         console.log('Retrieved guide data:', flowData);
         
-        // Get texts is optional since annotations are already in the flowData
-        // But keeping for backward compatibility
+        // Get texts if needed
         const texts = await this.apiClient.getTexts(guideId);
+        
+        // Check token again
+        if (token !== this.operationToken) {
+          console.log('Operation was cancelled during texts fetch, aborting guide processing');
+          return;
+        }
+        
         console.log('Retrieved guide texts:', texts);
         
         // Store the recording
         this.recording = flowData;
         
-        // Pre-sort steps once and cache them 
+        // Sort steps
         if (this.recording && this.recording.steps) {
           console.time('Sort steps');
           this.sortedSteps = [...this.recording.steps].sort((a, b) => {
@@ -287,8 +313,13 @@ export default class CursorFlow {
           console.timeEnd('Sort steps');
         }
         
-        // MODIFICATION: For a guide selected from the dropdown, always start fresh
-        // Clear any previous state for this guide ID
+        // Final token check before proceeding
+        if (token !== this.operationToken) {
+          console.log('Operation was cancelled after step sorting, aborting guide start');
+          return;
+        }
+        
+        // Clear previous state for this guide ID
         StateManager.clear();
         
         // NEW: Check if user is on the correct starting page
@@ -367,18 +398,19 @@ export default class CursorFlow {
           console.log('URL CHECK PASSED: User is on the correct starting page for the guide');
         }
         
-        // Start the actual guide instead of just showing a demo
-        await this.startGuide(guideId);
+        // Start the actual guide
+        await this.startGuide(guideId, token);
       } catch (error) {
         console.error('Failed to retrieve guide data:', error);
         
-        // Instead of just hiding the thinking indicator, stop the guide
-        // which will handle all cleanup
-        this.stop({
-          message: 'Failed to load guide. Please try again.',
-          type: 'error',
-          autoClose: 5000
-        });
+        // Only stop if this is still the current operation
+        if (token === this.operationToken) {
+          this.stop({
+            message: 'Failed to load guide. Please try again.',
+            type: 'error',
+            autoClose: 5000
+          });
+        }
       }
     }
   
@@ -455,65 +487,73 @@ export default class CursorFlow {
     }
   
     stop(notificationOptions?: StopNotificationOptions) {
-      // First, clean up any thinking indicator that might be present
+      // Generate a new token FIRST to cancel any in-flight operations
+      const oldToken = this.operationToken;
+      this.operationToken = this.generateToken();
+      console.log(`[STOP CALLED] Invalidating token ${oldToken}, new token ${this.operationToken}`);
+      
+      // Clean up thinking indicator immediately
       if (this.thinkingIndicator) {
         CursorFlowUI.hideThinkingIndicator(this.thinkingIndicator);
         this.thinkingIndicator = null;
       }
       
-      // Reset loading flag to allow new guide selections
+      // Reset loading flag immediately
       this.isLoadingGuide = false;
       
-      // Stop the validation loop if it's running
+      // Stop validation loop immediately
       this.stopValidationLoop();
 
-      // If notification options provided, show notification
+      // Show notification if provided (doesn't need to block cleanup)
       if (notificationOptions) {
         CursorFlowUI.showNotification({
           ...notificationOptions,
-          autoClose: notificationOptions.autoClose || 2000 // Default to 2 seconds
+          autoClose: notificationOptions.autoClose || 2000 
         });
       }
       
       if (this.options.debug) {
-        console.log('Stopping guide');
+        console.log('Stopping guide - Initiating immediate cleanup');
       }
       
-      // Add a small delay before cleaning up UI elements to ensure notification is visible
-      setTimeout(() => {
-        // Clean up all UI elements - pass false to ensure cursor is also cleaned up,
-        // and true to keep notifications
-        CursorFlowUI.cleanupAllUI(false, true);
-        
-        // Reset state
-        this.state = {
-          isPlaying: false,
-          currentStep: 0,
-          recordingId: null,
-          completedSteps: [],
-          timestamp: Date.now(),
-          debug: this.options.debug
-        };
-        
-        // Use immediate clear instead of debounced save
-        StateManager.clear();
-        StateManager.clearSession();
-        
-        // Remove event listeners
-        this.removeExistingListeners();
-        
-        // Update button state
+      // Perform cleanup IMMEDIATELY, removing the setTimeout
+      
+      // Clean up all UI elements - pass false to ensure cursor is also cleaned up,
+      // and true to keep notifications
+      CursorFlowUI.cleanupAllUI(false, true);
+      
+      // Reset state
+      const wasPlaying = this.state.isPlaying; // Check if it was playing before reset
+      this.state = {
+        isPlaying: false,
+        currentStep: 0,
+        recordingId: null,
+        completedSteps: [],
+        timestamp: Date.now(),
+        debug: this.options.debug
+      };
+      
+      // Use immediate clear instead of debounced save
+      StateManager.clear();
+      StateManager.clearSession();
+      
+      // Remove event listeners
+      this.removeExistingListeners();
+      
+      // Update button state only if it was previously playing
+      // Avoids changing button if stop was called preemptively (e.g., during failed load)
+      if (wasPlaying) {
         this.updateButtonState();
-        
-        // Reset all element references
-        this.cursorElement = null;
-        this.highlightElement = null;
-        this.currentTargetElement = null;
-        
-        if (this.options.debug) {
-          console.log('Guide stopped, state reset');
-        }
-      }, 100); // Small delay to ensure notification shows up first
+      }
+      
+      // Reset all element references
+      this.cursorElement = null;
+      this.highlightElement = null;
+      this.currentTargetElement = null;
+      
+      if (this.options.debug) {
+        console.log('Guide stopped, state reset, cleanup complete');
+      }
     }
   
     private async loadRecording(recordingId: string) {
@@ -557,8 +597,14 @@ export default class CursorFlow {
       }
     }
   
-    private async startGuide(guideId: string) {
+    private async startGuide(guideId: string, token: string) {
       try {
+        // Check token validity before starting
+        if (token !== this.operationToken) {
+          console.log('Operation was cancelled, aborting guide start');
+          return false;
+        }
+        
         if (this.options.debug) {
           console.log('Starting guide:', guideId);
         }
@@ -818,9 +864,18 @@ export default class CursorFlow {
       this.debugLog('Successfully identified target element:', this.currentTargetElement.outerHTML.substring(0, 150) + '...');
 
       console.time('Show visual elements');
-      // Ensure scrolling happens *before* validation loop starts
-      await this.showVisualElements(this.currentTargetElement, interaction);
+      // Pass the current token to showVisualElements
+      const currentToken = this.operationToken;
+      await this.showVisualElements(this.currentTargetElement, interaction, currentToken); 
       console.timeEnd('Show visual elements');
+      
+      // Check token again after showing visuals, before setting up interaction
+      if (currentToken !== this.operationToken) {
+          this.debugLog(`[playCurrentStep] Operation cancelled after showVisualElements. Aborting interaction setup.`);
+          // Explicitly clean up visuals shown if cancelled mid-step
+          this.hideVisualElements(); 
+          return false; 
+      }
 
       console.time('Setup interaction tracking');
       this.setupElementInteractionTracking(this.currentTargetElement, interaction);
@@ -832,7 +887,13 @@ export default class CursorFlow {
       return true;
     }
   
-    private async showVisualElements(targetElement: HTMLElement, interaction: any) {
+    private async showVisualElements(targetElement: HTMLElement, interaction: any, token: string) {
+      // Check token at the beginning
+      if (token !== this.operationToken) {
+        this.debugLog(`[showVisualElements] Operation cancelled (token mismatch). Aborting.`);
+        return; 
+      }
+
       // Create cursor element if not already created
       if (!this.cursorElement) {
         this.cursorElement = CursorFlowUI.createCursor(this.options.theme || {});
@@ -882,6 +943,13 @@ export default class CursorFlow {
       
       if (this.options.debug) {
         console.log('[CursorFlow] Visual elements shown for element:', targetElement);
+      }
+
+      // Potentially add token checks after async operations like scrollToElement if needed
+      await ElementUtils.scrollToElement(targetElement);
+      if (token !== this.operationToken) {
+         this.debugLog(`[showVisualElements] Operation cancelled after scroll. Aborting.`);
+         return;
       }
     }
   
@@ -953,7 +1021,6 @@ export default class CursorFlow {
       console.log('handleNavigation: Current URL:', window.location.href);
       console.time('Navigation handling');
       
-      // Use an even shorter timeout
       setTimeout(async () => {
         try {
           console.time('Check completed steps');
@@ -1064,30 +1131,30 @@ export default class CursorFlow {
                 console.log('handleNavigation: All guide steps completed');
                 this.completeGuide();
             } else {
-                // Show notification before stopping
+                // Show notification 
                 CursorFlowUI.showNotification({
                     message: 'Oops! You\'ve navigated away from the guide path',
                     type: 'warning',
                     autoClose: 5000
                 });
                 
-                // Add a small delay before stopping to ensure notification is shown
-                setTimeout(() => {
-                    this.stop({
-                        message: 'Oops! You\'ve navigated away from the guide path',
-                        type: 'warning'
-                    });
-                }, 100);
+                // REMOVED setTimeout, call stop directly
+                this.stop({
+                    message: 'Oops! You\'ve navigated away from the guide path',
+                    type: 'warning'
+                });
             }
             console.timeEnd('Check completion');
           }
         } catch (error) {
           console.error('Error handling navigation:', error);
+          // Ensure stop is called even on error during navigation handling
+          this.stop({ message: 'Error during navigation', type: 'error' });
         } finally {
           console.timeEnd('Navigation handling');
           this.isHandlingNavigation = false;
         }
-      }, 50); // Even shorter timeout
+      }, 50); // Keep outer timeout for debouncing handleNavigation itself
     }
   
     private setupElementInteractionTracking(element: HTMLElement, interaction: any) {
@@ -1483,13 +1550,16 @@ export default class CursorFlow {
             autoClose: 5000
         });
 
-        // Stop the guide after a short delay to allow notification to be seen
-        setTimeout(() => {
-            this.stop({
-                message: 'Guide stopped due to unexpected context change.',
-                type: 'warning'
-            });
-        }, 100);
+        // Stop the guide IMMEDIATELY
+        this.stop({
+            message: 'Guide stopped due to unexpected context change.',
+            type: 'warning'
+        });
     }
     // --- End NEW Methods ---
+
+    // Generate a unique token for operation tracking
+    private generateToken(): string {
+      return Date.now().toString() + Math.random().toString(36).substring(2);
+    }
 }
