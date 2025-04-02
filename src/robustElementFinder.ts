@@ -466,15 +466,26 @@ export class RobustElementFinder {
     private static isTextContentMatching(element: HTMLElement, targetText: string): boolean {
         if (!targetText || targetText.trim() === '') return true;
         
-        const text = element.textContent || '';
-        const innerText = element.innerText || '';
-        const value = (element as HTMLInputElement).value || '';
+        const searchLowerTrimmed = targetText.toLowerCase().trim();
         
-        // Simple case-insensitive contains check
-        const searchLower = targetText.toLowerCase().trim();
-        return text.toLowerCase().includes(searchLower) || 
-               innerText.toLowerCase().includes(searchLower) ||
-               value.toLowerCase().includes(searchLower);
+        // Prioritize direct text content or value for a stricter match
+        const textTrimmed = (element.textContent || '').trim().toLowerCase();
+        const innerTextTrimmed = (element.innerText || '').trim().toLowerCase();
+        const valueTrimmed = (element as HTMLInputElement).value?.trim().toLowerCase(); // Optional chaining for value
+        
+        // Check for near-exact match after trimming and lowercasing
+        if (textTrimmed === searchLowerTrimmed || 
+            innerTextTrimmed === searchLowerTrimmed || 
+            (valueTrimmed !== undefined && valueTrimmed === searchLowerTrimmed)) {
+            return true;
+        }
+
+        // Fallback: Allow fuzzy 'includes' ONLY if it's likely an interactive element or direct text node?
+        // For now, let's keep it stricter to avoid the container issue. 
+        // If this becomes too strict, we might need more nuanced logic here.
+        
+        // If no near-exact match, return false for initial filtering.
+        return false; 
     }
 
     /** Parses the attributes string/object */

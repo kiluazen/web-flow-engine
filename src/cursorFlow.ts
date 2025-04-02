@@ -1133,8 +1133,8 @@ export default class CursorFlow {
           }
       };
 
-      // Add debugging for event listener
-      this.debugLog(`Adding ${eventType} listener to element:`, element);
+      // ADDED: Log the specific element the listener is being added to.
+      console.log(`[CursorFlow] Adding ${eventType} listener to element:`, element);
       element.addEventListener(eventType, this.currentListener, { capture: true }); // Use capture phase maybe? Test this.
 
       if (this.options.debug) {
