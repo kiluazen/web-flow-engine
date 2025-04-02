@@ -1434,6 +1434,22 @@ export class CursorFlowUI {
   static showThinkingIndicator(button: HTMLElement): HTMLElement {
     console.log('[THINKING-DEBUG] Showing thinking indicator');
     
+    // Remove any existing thinking indicators
+    const existingIndicators = document.querySelectorAll('.hyphen-thinking-indicator');
+    existingIndicators.forEach(indicator => {
+      if (document.body.contains(indicator)) {
+        document.body.removeChild(indicator);
+      }
+    });
+    
+    // Also clean up any existing cursors to prevent duplicates
+    const existingCursors = document.querySelectorAll('#hyphenbox-cursor-wrapper');
+    existingCursors.forEach(cursor => {
+      if (document.body.contains(cursor)) {
+        document.body.removeChild(cursor);
+      }
+    });
+    
     // Create a container for the thinking indicator
     const container = document.createElement('div');
     container.className = 'hyphen-thinking-indicator';

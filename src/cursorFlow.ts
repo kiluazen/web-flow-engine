@@ -33,6 +33,7 @@ export default class CursorFlow {
     private isHandlingNavigation = false;
     private thinkingIndicator: HTMLElement | null = null;
     private validationLoopId: number | null = null;
+    private isLoadingGuide = false;
   
     constructor(options: CursorFlowOptions) {
       // Initialize with default options
@@ -216,6 +217,13 @@ export default class CursorFlow {
         console.log('Starting guide selection');
       }
       
+      // If a guide is already playing, stop it first
+      if (this.state.isPlaying) {
+        console.log('Guide already playing, stopping it first');
+        this.stop();
+        return;
+      }
+      
       // Set session flag
       StateManager.setSessionActive();
       
@@ -239,12 +247,18 @@ export default class CursorFlow {
         (guideData) => {
           console.log('Selected guide:', guideData);
           
-          // Show thinking indicator as soon as guide is selected
+          // Update state to playing immediately
+          this.state.isPlaying = true;
+          
+          // Update button to "Stop Guide" immediately
+          this.updateButtonState();
+          
+          // Show thinking indicator
           if (this.startButton) {
             this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton);
           }
           
-          // For now just retrieve and log the recording data
+          // Start loading the guide
           this.retrieveGuideData(guideData.id);
         }
       );
@@ -358,14 +372,9 @@ export default class CursorFlow {
       } catch (error) {
         console.error('Failed to retrieve guide data:', error);
         
-        // Hide thinking indicator on error
-        if (this.thinkingIndicator) {
-          CursorFlowUI.hideThinkingIndicator(this.thinkingIndicator);
-          this.thinkingIndicator = null;
-        }
-        
-        // Show error notification
-        CursorFlowUI.showNotification({
+        // Instead of just hiding the thinking indicator, stop the guide
+        // which will handle all cleanup
+        this.stop({
           message: 'Failed to load guide. Please try again.',
           type: 'error',
           autoClose: 5000
@@ -446,6 +455,15 @@ export default class CursorFlow {
     }
   
     stop(notificationOptions?: StopNotificationOptions) {
+      // First, clean up any thinking indicator that might be present
+      if (this.thinkingIndicator) {
+        CursorFlowUI.hideThinkingIndicator(this.thinkingIndicator);
+        this.thinkingIndicator = null;
+      }
+      
+      // Reset loading flag to allow new guide selections
+      this.isLoadingGuide = false;
+      
       // Stop the validation loop if it's running
       this.stopValidationLoop();
 
@@ -455,12 +473,6 @@ export default class CursorFlow {
           ...notificationOptions,
           autoClose: notificationOptions.autoClose || 2000 // Default to 2 seconds
         });
-      }
-      
-      // Hide thinking indicator when stopping the guide
-      if (this.thinkingIndicator) {
-        CursorFlowUI.hideThinkingIndicator(this.thinkingIndicator);
-        this.thinkingIndicator = null;
       }
       
       if (this.options.debug) {
