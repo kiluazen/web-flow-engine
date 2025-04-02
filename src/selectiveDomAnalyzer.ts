@@ -339,8 +339,10 @@ export class SelectiveDomAnalyzer {
             }
 
             if (!topElementAtPoint) {
-                // Keep log if elementFromPoint returns null, as it indicates an issue
-                console.log(`[SelectiveDomAnalyzer] elementFromPoint (center: ${checkX}, ${checkY}) returned null.`);
+                // Only log in debug mode
+                if (this.debugMode) {
+                    console.log(`[SelectiveDomAnalyzer] elementFromPoint (center: ${checkX}, ${checkY}) returned null.`);
+                }
                 return false;
             }
 
@@ -393,8 +395,10 @@ export class SelectiveDomAnalyzer {
             }
 
             if (!isRelated) {
-                 // Keep log for occlusion failure
-                console.log(`[SelectiveDomAnalyzer] Occlusion detected at center point (${checkX}, ${checkY}). Target ${element.tagName}#${element.id} is not related to the top element ${topElementAtPoint.tagName}#${topElementAtPoint.id}`);
+                // Keep log for occlusion failure but only in debug mode
+                if (this.debugMode) {
+                    console.log(`[SelectiveDomAnalyzer] Occlusion detected at center point (${checkX}, ${checkY}). Target ${element.tagName}#${element.id} is not related to the top element ${topElementAtPoint.tagName}#${topElementAtPoint.id}`);
+                }
                 return false;
             }
             return true; // Point check passed

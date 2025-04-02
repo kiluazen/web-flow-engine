@@ -35,6 +35,7 @@ export default class CursorFlow {
     private validationLoopId: number | null = null;
     private isLoadingGuide = false;
     private operationToken: string = '';
+    private invalidationInProgress = false;
   
     constructor(options: CursorFlowOptions) {
       // Initialize with default options
@@ -492,6 +493,10 @@ export default class CursorFlow {
       this.operationToken = this.generateToken();
       console.log(`[STOP CALLED] Invalidating token ${oldToken}, new token ${this.operationToken}`);
       
+      // Set isPlaying to false immediately to prevent concurrent operations
+      const wasPlaying = this.state.isPlaying; // Capture previous state
+      this.state.isPlaying = false;
+      
       // Clean up thinking indicator immediately
       if (this.thinkingIndicator) {
         CursorFlowUI.hideThinkingIndicator(this.thinkingIndicator);
@@ -516,22 +521,15 @@ export default class CursorFlow {
         console.log('Stopping guide - Initiating immediate cleanup');
       }
       
-      // Perform cleanup IMMEDIATELY, removing the setTimeout
-      
       // Clean up all UI elements - pass false to ensure cursor is also cleaned up,
       // and true to keep notifications
       CursorFlowUI.cleanupAllUI(false, true);
       
-      // Reset state
-      const wasPlaying = this.state.isPlaying; // Check if it was playing before reset
-      this.state = {
-        isPlaying: false,
-        currentStep: 0,
-        recordingId: null,
-        completedSteps: [],
-        timestamp: Date.now(),
-        debug: this.options.debug
-      };
+      // Reset state (isPlaying is already false)
+      this.state.currentStep = 0;
+      this.state.recordingId = null;
+      this.state.completedSteps = [];
+      this.state.timestamp = Date.now();
       
       // Use immediate clear instead of debounced save
       StateManager.clear();
@@ -541,7 +539,7 @@ export default class CursorFlow {
       this.removeExistingListeners();
       
       // Update button state only if it was previously playing
-      // Avoids changing button if stop was called preemptively (e.g., during failed load)
+      // Avoids changing button if stop was called preemptively
       if (wasPlaying) {
         this.updateButtonState();
       }
@@ -550,6 +548,9 @@ export default class CursorFlow {
       this.cursorElement = null;
       this.highlightElement = null;
       this.currentTargetElement = null;
+      
+      // Reset invalidation flag after everything is done
+      this.invalidationInProgress = false;
       
       if (this.options.debug) {
         console.log('Guide stopped, state reset, cleanup complete');
@@ -1012,8 +1013,8 @@ export default class CursorFlow {
     }
   
     private handleNavigation(continueThroughSteps = false) {
-      if (!this.state.isPlaying || this.isHandlingNavigation) {
-        console.log('handleNavigation: Not playing or already handling, returning early');
+      if (!this.state.isPlaying || this.isHandlingNavigation || this.invalidationInProgress) {
+        console.log('handleNavigation: Initial check failed - Not playing, already handling, or invalidation in progress. Returning early');
         return;
       }
       
@@ -1022,6 +1023,15 @@ export default class CursorFlow {
       console.time('Navigation handling');
       
       setTimeout(async () => {
+        // **** ADDED CHECK INSIDE TIMEOUT ****
+        // Check if stop() was called while we were waiting for the timeout
+        if (!this.state.isPlaying) {
+            console.log('handleNavigation: state.isPlaying is false after timeout. Aborting navigation handling.');
+            this.isHandlingNavigation = false; // Ensure flag is reset
+            console.timeEnd('Navigation handling'); // End timer here
+            return;
+        }
+          
         try {
           console.time('Check completed steps');
           // Check if we have completed the previous step and moved to a new URL
@@ -1149,12 +1159,15 @@ export default class CursorFlow {
         } catch (error) {
           console.error('Error handling navigation:', error);
           // Ensure stop is called even on error during navigation handling
-          this.stop({ message: 'Error during navigation', type: 'error' });
+          // Check isPlaying again before stopping to avoid redundant calls if stop was already called
+          if (this.state.isPlaying) {
+              this.stop({ message: 'Error during navigation', type: 'error' });
+          }
         } finally {
           console.timeEnd('Navigation handling');
           this.isHandlingNavigation = false;
         }
-      }, 50); // Keep outer timeout for debouncing handleNavigation itself
+      }, 50); 
     }
   
     private setupElementInteractionTracking(element: HTMLElement, interaction: any) {
@@ -1491,6 +1504,11 @@ export default class CursorFlow {
 
         this.debugLog('Starting validation loop for current step.');
 
+        // Set a reasonable validation interval (e.g., every 500ms instead of every frame)
+        // This significantly reduces the number of validations while still being responsive
+        const VALIDATION_INTERVAL_MS = 500;
+        let lastValidationTime = Date.now();
+
         const loopFn = () => {
             if (!this.state.isPlaying || !this.currentTargetElement || this.validationLoopId === null) {
                 // Stop conditions: not playing, no target, or loop explicitly stopped
@@ -1498,30 +1516,36 @@ export default class CursorFlow {
                 return;
             }
 
-            // Use a try-catch block for safety during validation
-            try {
-                // Check if the element is still connected to the DOM *before* validation
-                 if (!this.currentTargetElement.isConnected) {
-                    this.debugLog('Target element disconnected from DOM. Handling step invalidation.');
-                    this.handleStepInvalidation('Element removed from DOM');
-                    return; // Stop the loop
-                }
+            const currentTime = Date.now();
+            
+            // Only perform validation check if enough time has passed since last check
+            if (currentTime - lastValidationTime >= VALIDATION_INTERVAL_MS) {
+                lastValidationTime = currentTime;
+                
+                // Use a try-catch block for safety during validation
+                try {
+                    // Check if the element is still connected to the DOM *before* validation
+                    if (!this.currentTargetElement.isConnected) {
+                        this.debugLog('Target element disconnected from DOM. Handling step invalidation.');
+                        this.handleStepInvalidation('Element removed from DOM');
+                        return; // Stop the loop
+                    }
 
-                // Perform the validation
-                 const isValid = SelectiveDomAnalyzer.validateCandidateElement(this.currentTargetElement);
+                    // Perform the validation
+                    const isValid = SelectiveDomAnalyzer.validateCandidateElement(this.currentTargetElement);
 
-                if (!isValid) {
-                    this.debugLog('Target element failed validation check. Handling step invalidation.');
-                    this.handleStepInvalidation('Element became invalid (hidden, occluded, etc.)');
-                    return; // Stop the loop
+                    if (!isValid) {
+                        this.debugLog('Target element failed validation check. Handling step invalidation.');
+                        this.handleStepInvalidation('Element became invalid (hidden, occluded, etc.)');
+                        return; // Stop the loop
+                    }
+                } catch (error) {
+                    console.error('[CursorFlow] Error during validation loop:', error);
+                    // Optionally stop the guide on error, or just log and continue
+                    // this.handleStepInvalidation('Error during element validation');
+                    // return;
                 }
-            } catch (error) {
-                console.error('[CursorFlow] Error during validation loop:', error);
-                // Optionally stop the guide on error, or just log and continue
-                // this.handleStepInvalidation('Error during element validation');
-                // return;
             }
-
 
             // If still valid, request the next frame
             this.validationLoopId = requestAnimationFrame(loopFn);
@@ -1540,6 +1564,15 @@ export default class CursorFlow {
     }
 
     private handleStepInvalidation(reason: string) {
+        // Don't proceed if we're already stopping
+        if (this.invalidationInProgress) {
+            this.debugLog(`Ignoring step invalidation (${reason}) as invalidation is already in progress`);
+            return;
+        }
+        
+        // Set invalidation flag to prevent concurrent stop calls
+        this.invalidationInProgress = true;
+        
         this.debugLog(`Handling Step Invalidation: ${reason}`);
         this.stopValidationLoop(); // Ensure loop is stopped
 
