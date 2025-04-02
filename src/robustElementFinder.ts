@@ -100,7 +100,7 @@ export class RobustElementFinder {
             // --- Strategy 4b: Text-based XPath ---
             if (targetText) {
                 console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 4b (Modal Context): Trying text-based XPath`);
-                const textXPath = `//button[contains(text(), "${targetText}")] | //button[contains(., "${targetText}")]`;
+                const textXPath = `//*[contains(text(), "${targetText}") or contains(., "${targetText}")]`;
                 try {
                     this.evaluateXPathInRoots(nonDocumentRoots, textXPath, targetText, modalCandidates, 'Text-based XPath');
                 } catch (e) {
@@ -109,8 +109,26 @@ export class RobustElementFinder {
             }
 
             // --- Check Modal Results BEFORE falling back to Document ---
+            if (targetText && modalCandidates.size > 0) {
+                 const textBasedCandidates = Array.from(modalCandidates.entries())
+                    .filter(([_, strategy]) => strategy.includes('Tag + Text') || strategy.includes('Text-based XPath'))
+                    .map(([element, _]) => element);
+
+                 if (textBasedCandidates.length > 0) {
+                     console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED in Non-Document context prioritizing TEXT matches. Found ${textBasedCandidates.length} candidate(s):`);
+                     textBasedCandidates.forEach((element, index) => {
+                         const strategy = modalCandidates.get(element) || 'Unknown Text Strategy';
+                         console.log(`  - Candidate ${index + 1}: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
+                     });
+                     return textBasedCandidates; // Return only text-based matches from modal
+                 }
+                 // If text search was attempted but yielded no text-specific results, fall through to check *all* modal candidates
+            }
+
             if (modalCandidates.size > 0) {
-                console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED in Non-Document context. Found ${modalCandidates.size} unique candidate(s):`);
+                 // This block now primarily handles cases where targetText was null/empty,
+                 // or where text search was attempted but only non-text strategies (CSS, ID, Attr) found matches.
+                console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED in Non-Document context (Non-text strategies or fallback). Found ${modalCandidates.size} unique candidate(s):`);
                 modalCandidates.forEach((strategy, element) => {
                    console.log(`  - Candidate: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
                 });
@@ -173,7 +191,7 @@ export class RobustElementFinder {
                  // --- Strategy 4b: Text-based XPath (Document Fallback) ---
                  if (targetText) {
                     console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 4b (Document Fallback): Trying text-based XPath`);
-                    const textXPath = `//button[contains(text(), "${targetText}")] | //button[contains(., "${targetText}")]`;
+                    const textXPath = `//*[contains(text(), "${targetText}") or contains(., "${targetText}")]`;
                     try {
                         this.evaluateXPathInRoots(docRootArray, textXPath, targetText, documentCandidates, 'Text-based XPath');
                     } catch (e) {
@@ -183,14 +201,29 @@ export class RobustElementFinder {
             }
 
             // --- Final Check and Retry Logic ---
-            const finalCandidates = documentCandidates.size > 0 ? documentCandidates : modalCandidates; // Prefer modal if somehow doc search failed after modal success (shouldn't happen with new logic)
+            let finalCandidatesMap = documentCandidates; // Default to document candidates
 
-            if (finalCandidates.size > 0) {
-                 console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED (Context: ${documentCandidates.size > 0 ? 'Document Fallback' : 'Non-Document'}). Found ${finalCandidates.size} unique candidate(s):`);
-                 finalCandidates.forEach((strategy, element) => {
+            if (targetText && documentCandidates.size > 0) {
+                const docTextBasedCandidatesMap = new Map<HTMLElement, string>();
+                 documentCandidates.forEach((strategy, element) => {
+                    if (strategy.includes('Tag + Text') || strategy.includes('Text-based XPath')) {
+                        docTextBasedCandidatesMap.set(element, strategy);
+                    }
+                 });
+
+                if (docTextBasedCandidatesMap.size > 0) {
+                     console.log(`[RobustFinder] Attempt ${attempt + 1} - Prioritizing TEXT matches from Document Fallback.`);
+                     finalCandidatesMap = docTextBasedCandidatesMap; // Use only text-based if found
+                }
+                 // If no text-based found in document, use the original documentCandidates map
+            }
+
+            if (finalCandidatesMap.size > 0) {
+                 console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED (Context: Document Fallback). Found ${finalCandidatesMap.size} unique candidate(s):`);
+                 finalCandidatesMap.forEach((strategy, element) => {
                     console.log(`  - Candidate: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
                  });
-                 return Array.from(finalCandidates.keys()); // Success
+                 return Array.from(finalCandidatesMap.keys()); // Success
             }
 
             // If no candidates found and retries remain, wait and retry
