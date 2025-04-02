@@ -380,7 +380,14 @@ export class RobustElementFinder {
                                 candidates.set(element, foundContext);
                                 strategyFoundCount++;
                                 console.log(`[RobustFinder]     + Added candidate via ${foundContext} (Visible: ${isVisible}, TextMatch: ${passesTextCheck}):`, element.tagName, element.id);
+                                if (this.debugMode) {
+                                    console.log(`[RobustFinder-DEBUG]       HTML:`, element.outerHTML);
+                                }
                             }
+                        }
+                        else if (this.debugMode && (!passesTextCheck || !isVisible)){
+                             // Log why an element *wasn't* added in debug mode
+                             console.log(`[RobustFinder-DEBUG]     - Skipped candidate from ${strategyName} in ${name} (Visible: ${isVisible}, TextMatch: ${passesTextCheck}):`, element.tagName, element.id, element.outerHTML);
                         }
                     }
                 });
@@ -430,9 +437,12 @@ export class RobustElementFinder {
                                 candidates.set(node, foundContext);
                                 foundCount++;
                                 console.log(`[RobustFinder]     + Added candidate via ${foundContext} (Visible: ${isVisible}, TextMatch: ${passesTextCheck}):`, node.tagName, node.id);
+                                if (this.debugMode) {
+                                    console.log(`[RobustFinder-DEBUG]       HTML:`, node.outerHTML);
+                                }
                             }
                         } else if (this.debugMode) {
-                            console.log(`[RobustFinder]   XPath result in ${name} ${node.tagName}#${node.id} skipped (Visible: ${isVisible}, TextMatch: ${passesTextCheck})`);
+                            console.log(`[RobustFinder-DEBUG]   - Skipped XPath result in ${name} (Visible: ${isVisible}, TextMatch: ${passesTextCheck}):`, node.tagName, node.id, node.outerHTML);
                         }
                     }
                     node = result.iterateNext();
