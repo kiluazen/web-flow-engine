@@ -36,6 +36,7 @@ export default class CursorFlow {
     private isLoadingGuide = false;
     private operationToken: string = '';
     private invalidationInProgress = false;
+    private isDropdownOpen = false;
   
     constructor(options: CursorFlowOptions) {
       // Initialize with default options
@@ -278,11 +279,25 @@ export default class CursorFlow {
     private showGuidesDropdown() {
       if (!this.startButton) return;
       
+      // Toggle dropdown state
+      if (this.isDropdownOpen) {
+        // If dropdown is open, close it
+        const dropdown = document.getElementById('hyphen-guides-dropdown');
+        if (dropdown) {
+          dropdown.remove();
+        }
+        this.isDropdownOpen = false;
+        return;
+      }
+      
       // Create and show dropdown
       CursorFlowUI.showGuidesDropdown(
         this.guides, 
         this.startButton,
         (guideData) => {
+          // Mark dropdown as closed when a guide is selected
+          this.isDropdownOpen = false;
+          
           console.log('Selected guide:', guideData);
           
           // IMPORTANT: Generate a new operation token to cancel any in-flight operations
@@ -304,6 +319,9 @@ export default class CursorFlow {
           this.retrieveGuideData(guideData.id, currentToken);
         }
       );
+      
+      // Mark dropdown as open
+      this.isDropdownOpen = true;
     }
   
     private async retrieveGuideData(guideId: string, token: string) {
@@ -552,6 +570,15 @@ export default class CursorFlow {
       // Set isPlaying to false immediately to prevent concurrent operations
       const wasPlaying = this.state.isPlaying; // Capture previous state
       this.state.isPlaying = false;
+      
+      // Reset dropdown state
+      this.isDropdownOpen = false;
+      
+      // Close any existing dropdown
+      const existingDropdown = document.getElementById('hyphen-guides-dropdown');
+      if (existingDropdown) {
+        existingDropdown.remove();
+      }
       
       // Clear any redirect guide ID
       try {

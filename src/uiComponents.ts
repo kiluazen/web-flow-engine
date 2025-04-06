@@ -279,10 +279,10 @@ export class CursorFlowUI {
     const existingDropdown = document.getElementById('hyphen-guides-dropdown');
     if (existingDropdown) {
         existingDropdown.remove();
-        return existingDropdown; // Return early since we're just closing
     }
 
     const dropdown = document.createElement('div');
+    dropdown.id = 'hyphen-guides-dropdown'; // Add ID for easier tracking
     dropdown.className = 'hyphen-dropdown';
     
     // Modern styling for dropdown
@@ -461,16 +461,6 @@ export class CursorFlowUI {
             document.removeEventListener('click', handleOutsideClick);
         }
     };
-
-    // Add click event for button separately to toggle behavior
-    const handleButtonClick = (event: MouseEvent) => {
-        dropdown.remove();
-        document.removeEventListener('click', handleOutsideClick);
-        // Don't need to call removeEventListener for handleButtonClick
-        // as it's only attached to the button, not the document
-    };
-    
-    guideButton.addEventListener('click', handleButtonClick);
     
     // Delay adding the document listener to avoid immediate triggering
     setTimeout(() => {

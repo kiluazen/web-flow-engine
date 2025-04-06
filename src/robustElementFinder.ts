@@ -118,12 +118,20 @@ export class RobustElementFinder {
                 const prioritizedCandidates = this.prioritizeCandidates(modalCandidates, 'Non-Document');
                 if (prioritizedCandidates.length > 0) {
                     console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED in Non-Document context. Found ${prioritizedCandidates.length} prioritized candidate(s).`);
-                    // Log the prioritized candidates for debugging
-                    prioritizedCandidates.forEach((element, index) => {
-                        const strategy = modalCandidates.get(element) || 'Unknown';
-                        console.log(`  - Prioritized Candidate ${index + 1}: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
-                    });
-                    return prioritizedCandidates;
+                    
+                    // NEW: Try to scroll modal candidates into view if needed
+                    const visibleModalCandidates = await this.ensureCandidatesInView(prioritizedCandidates);
+                    
+                    if (visibleModalCandidates.length > 0) {
+                        // Log the visible candidates for debugging
+                        visibleModalCandidates.forEach((element, index) => {
+                            const strategy = modalCandidates.get(element) || 'Unknown';
+                            console.log(`  - Visible Modal Candidate ${index + 1}: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
+                        });
+                        return visibleModalCandidates;
+                    } else {
+                        console.log(`[RobustFinder] Found modal candidates but none were visible or could be scrolled into view. Falling through to document search.`);
+                    }
                 }
                 // If prioritization resulted in an empty list (shouldn't normally happen if size > 0), 
                 // fall through to document search just in case.
@@ -195,19 +203,28 @@ export class RobustElementFinder {
                  }
             }
 
-            // --- Prioritize and Return Document Results (if any) ---
+            // --- NEW: Check if we found candidates but need to scroll them into view ---
             if (documentCandidates.size > 0) {
                 const prioritizedCandidates = this.prioritizeCandidates(documentCandidates, 'Document Fallback');
+                
+                // NEW: Try to scroll candidate into view if it's not currently visible
                 if (prioritizedCandidates.length > 0) {
-                     console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED (Context: Document Fallback). Found ${prioritizedCandidates.length} prioritized candidate(s).`);
-                     // Log the prioritized candidates for debugging
-                     prioritizedCandidates.forEach((element, index) => {
-                        const strategy = documentCandidates.get(element) || 'Unknown';
-                        console.log(`  - Prioritized Candidate ${index + 1}: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
-                     });
-                     return prioritizedCandidates;
+                    const visibleCandidates = await this.ensureCandidatesInView(prioritizedCandidates);
+                    
+                    if (visibleCandidates.length > 0) {
+                        console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED (Context: Document Fallback). Found ${visibleCandidates.length} visible candidate(s).`);
+                        // Log the visible candidates for debugging
+                        visibleCandidates.forEach((element, index) => {
+                            const strategy = documentCandidates.get(element) || 'Unknown';
+                            console.log(`  - Visible Candidate ${index + 1}: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
+                        });
+                        return visibleCandidates;
+                    } else {
+                        console.log(`[RobustFinder] Found candidates but none were visible or could be scrolled into view.`);
+                    }
+                } else {
+                    console.warn("[RobustFinder] Document candidates existed but prioritization yielded none.");
                 }
-                console.warn("[RobustFinder] Document candidates existed but prioritization yielded none.");
             }
 
             // If no candidates found and retries remain, wait and retry
@@ -654,5 +671,135 @@ export class RobustElementFinder {
         });
     }
     // --- End Stability Wait --- 
+
+    /** Checks if elements are in viewport and attempts to scroll them into view if not */
+    private static async ensureCandidatesInView(candidates: HTMLElement[]): Promise<HTMLElement[]> {
+        const visibleCandidates: HTMLElement[] = [];
+        
+        // Try different scroll behaviors if the first one doesn't work
+        const scrollBehaviors: ScrollIntoViewOptions[] = [
+            { behavior: 'smooth', block: 'center' },
+            { behavior: 'auto', block: 'center' },  // Fallback to instant scrolling
+            { behavior: 'auto', block: 'nearest' }  // Minimum required scroll
+        ];
+        
+        for (const element of candidates) {
+            try {
+                // Check if element is in viewport
+                const rect = element.getBoundingClientRect();
+                const isInViewport = (
+                    rect.top >= 0 &&
+                    rect.left >= 0 &&
+                    rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                    rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+                );
+                
+                if (isInViewport) {
+                    console.log(`[RobustFinder] Element already in viewport:`, element.tagName, element.id);
+                    visibleCandidates.push(element);
+                    continue;
+                }
+                
+                // Element not in viewport, try to scroll it into view
+                console.log(`[RobustFinder] Element not in viewport, attempting to scroll:`, element.tagName, element.id);
+                
+                // Check if element is in a scrollable container (like a modal)
+                const scrollableContainer = this.findScrollableParent(element);
+                
+                // Try each scroll behavior until one works
+                let scrollSucceeded = false;
+                for (const scrollBehavior of scrollBehaviors) {
+                    if (scrollSucceeded) break;
+                    
+                    // If element is in a scrollable container, scroll that container
+                    if (scrollableContainer && scrollableContainer !== document.body && scrollableContainer !== document.documentElement) {
+                        console.log(`[RobustFinder] Scrolling container:`, scrollableContainer.tagName, scrollableContainer.id);
+                        
+                        // Calculate position to scroll to
+                        const containerRect = scrollableContainer.getBoundingClientRect();
+                        const elementRect = element.getBoundingClientRect();
+                        const relativeTop = elementRect.top - containerRect.top;
+                        
+                        // Scroll the container
+                        scrollableContainer.scrollTop = scrollableContainer.scrollTop + relativeTop - containerRect.height / 2;
+                    } else {
+                        // Scroll the element directly
+                        element.scrollIntoView(scrollBehavior);
+                    }
+                    
+                    // Wait for scroll to complete
+                    await new Promise(resolve => setTimeout(resolve, scrollBehavior.behavior === 'smooth' ? 500 : 100));
+                    
+                    // Check if element is now in viewport
+                    const newRect = element.getBoundingClientRect();
+                    const isNowInViewport = (
+                        newRect.top >= 0 &&
+                        newRect.left >= 0 &&
+                        newRect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                        newRect.right <= (window.innerWidth || document.documentElement.clientWidth)
+                    );
+                    
+                    if (isNowInViewport) {
+                        console.log(`[RobustFinder] Successfully scrolled element into viewport with behavior:`, scrollBehavior.behavior);
+                        visibleCandidates.push(element);
+                        scrollSucceeded = true;
+                        break;
+                    }
+                    
+                    // If element still not fully in viewport but partially visible, it might be good enough
+                    const isPartiallyVisible = (
+                        newRect.top < (window.innerHeight || document.documentElement.clientHeight) &&
+                        newRect.bottom > 0 &&
+                        newRect.left < (window.innerWidth || document.documentElement.clientWidth) &&
+                        newRect.right > 0
+                    );
+                    
+                    if (isPartiallyVisible) {
+                        console.log(`[RobustFinder] Element partially visible after scrolling with behavior:`, scrollBehavior.behavior);
+                        visibleCandidates.push(element);
+                        scrollSucceeded = true;
+                        break;
+                    }
+                }
+                
+                if (!scrollSucceeded) {
+                    console.log(`[RobustFinder] Element still not visible after all scroll attempts:`, element.tagName, element.id);
+                }
+            } catch (e) {
+                console.warn(`[RobustFinder] Error checking/scrolling element:`, e);
+            }
+        }
+        
+        return visibleCandidates;
+    }
+    
+    /** Finds the closest parent that has scrollable overflow */
+    private static findScrollableParent(element: HTMLElement): HTMLElement | null {
+        if (!element) return null;
+        
+        // Start with the parent element
+        let parent = element.parentElement;
+        
+        // Traverse up the DOM tree
+        while (parent) {
+            const style = window.getComputedStyle(parent);
+            const overflowY = style.getPropertyValue('overflow-y');
+            const overflowX = style.getPropertyValue('overflow-x');
+            
+            // Check if this element has scrollable overflow
+            if (
+                (overflowY === 'auto' || overflowY === 'scroll') ||
+                (overflowX === 'auto' || overflowX === 'scroll')
+            ) {
+                return parent;
+            }
+            
+            // Move up to the next parent
+            parent = parent.parentElement;
+        }
+        
+        // If no scrollable parent found, return document.body
+        return document.body;
+    }
 
 } 
