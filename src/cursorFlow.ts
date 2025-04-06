@@ -715,9 +715,44 @@ export default class CursorFlow {
       }
     }
     
-    private async playCurrentStep() {
+    private async playCurrentStep(): Promise<boolean> {
       // ADDED: Log this.options.debug at the start of the function
       this.debugLog(`[DEBUG-VERIFY] playCurrentStep called. this.options.debug = ${this.options.debug}`);
+
+      // ⚠️ TEMPORARY FIX: Check for already-visible step 2 element
+      // Only for the step 1-2 sequence where step 1 might open a dropdown containing step 2
+      if (this.state.currentStep === 0 && this.sortedSteps.length > 1) {
+          const nextStep = this.sortedSteps[1]; // Get step 2
+          if (nextStep?.interaction) {
+              this.debugLog('[TEMPORARY FIX] Checking if step 2 element is already accessible');
+              
+              // Use our existing RobustElementFinder to check if step 2's element exists
+              RobustElementFinder.setDebugMode(this.options.debug || false);
+              const step2Candidates = await RobustElementFinder.findCandidates(nextStep.interaction);
+              
+              if (step2Candidates.length > 0) {
+                  // Check if the element is visible using standard DOM checks
+                  const el = step2Candidates[0];
+                  const style = window.getComputedStyle(el);
+                  
+                  // Basic visibility check
+                  const isVisible = style.display !== 'none' && 
+                                    style.visibility !== 'hidden' && 
+                                    parseFloat(style.opacity || '1') > 0 &&
+                                    el.getBoundingClientRect().width > 0 &&
+                                    el.getBoundingClientRect().height > 0;
+                  
+                  if (isVisible) {
+                      this.debugLog('[TEMPORARY FIX] Step 2 element is already visible and accessible. Skipping step 1');
+                      // Skip to step 2
+                      this.state.currentStep = 1;
+                      this.state.completedSteps.push(0); // Mark step 1 as completed
+                      StateManager.saveWithDebounce(this.state);
+                      return this.playCurrentStep(); // Recursively play step 2
+                  }
+              }
+          }
+      }
 
       // Ensure any previous validation loop is stopped before starting a new step
       this.stopValidationLoop();
