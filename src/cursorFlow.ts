@@ -130,6 +130,40 @@ export default class CursorFlow {
           }
         });
         
+        // Check for a guide that required redirect
+        try {
+          const redirectGuideId = localStorage.getItem('hyphen_redirect_guide_id');
+          if (redirectGuideId) {
+            console.log('Found guide requiring redirect to auto-start:', redirectGuideId);
+            
+            // Remove the guide ID immediately to prevent loops
+            localStorage.removeItem('hyphen_redirect_guide_id');
+            
+            // Wait a short moment for the page to fully load
+            setTimeout(() => {
+              // Generate operation token
+              this.operationToken = this.generateToken();
+              const currentToken = this.operationToken;
+              
+              // Update state to playing immediately
+              this.state.isPlaying = true;
+              
+              // Update button to "Stop Guide"
+              this.updateButtonState();
+              
+              // Show thinking indicator
+              if (this.startButton) {
+                this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton);
+              }
+              
+              // Start the guide automatically
+              this.retrieveGuideData(redirectGuideId, currentToken);
+            }, 1000);
+          }
+        } catch (err) {
+          console.error('Error checking for redirect guide:', err);
+        }
+        
         return true;
       } catch (error) {
         console.error('Failed to initialize CursorFlow:', error);
@@ -274,6 +308,13 @@ export default class CursorFlow {
   
     private async retrieveGuideData(guideId: string, token: string) {
       try {
+        // Clear any previous redirect guide ID 
+        try {
+          localStorage.removeItem('hyphen_redirect_guide_id');
+        } catch (err) {
+          console.warn('Failed to clear previous redirect guide ID:', err);
+        }
+        
         // Validate token at the start of operation
         if (token !== this.operationToken) {
           console.log('Operation was cancelled, aborting guide retrieval');
@@ -377,6 +418,14 @@ export default class CursorFlow {
             }
             
             if (redirectUrl) {
+              // Store the guide ID in localStorage for auto-start after redirect
+              try {
+                localStorage.setItem('hyphen_redirect_guide_id', guideId);
+                console.log('Stored redirect guide ID in localStorage:', guideId);
+              } catch (err) {
+                console.error('Failed to store guide ID in localStorage:', err);
+              }
+              
               // Show notification with redirect option
               CursorFlowUI.showRedirectNotification({
                 message: 'To start this guide, you need to go to the starting page first',
@@ -403,6 +452,13 @@ export default class CursorFlow {
         await this.startGuide(guideId, token);
       } catch (error) {
         console.error('Failed to retrieve guide data:', error);
+        
+        // Clear redirect guide ID on error
+        try {
+          localStorage.removeItem('hyphen_redirect_guide_id');
+        } catch (err) {
+          console.warn('Failed to clear redirect guide ID on error:', err);
+        }
         
         // Only stop if this is still the current operation
         if (token === this.operationToken) {
@@ -496,6 +552,13 @@ export default class CursorFlow {
       // Set isPlaying to false immediately to prevent concurrent operations
       const wasPlaying = this.state.isPlaying; // Capture previous state
       this.state.isPlaying = false;
+      
+      // Clear any redirect guide ID
+      try {
+        localStorage.removeItem('hyphen_redirect_guide_id');
+      } catch (err) {
+        console.warn('Failed to clear redirect guide ID on stop:', err);
+      }
       
       // Clean up thinking indicator immediately
       if (this.thinkingIndicator) {
@@ -1402,28 +1465,26 @@ export default class CursorFlow {
   
     // Add a new method for guide completion
     private completeGuide() {
-      this.stopValidationLoop(); // Stop loop on completion
-
       if (this.options.debug) {
-        console.log('Guide completed');
+        console.log('All guide steps completed, resetting state');
       }
       
-      // Update state to completed
-      this.state.isPlaying = false;
+      // Clear any redirect guide ID
+      try {
+        localStorage.removeItem('hyphen_redirect_guide_id');
+      } catch (err) {
+        console.warn('Failed to clear redirect guide ID on completion:', err);
+      }
       
-      // Save state immediately since this is the final state
-      StateManager.saveWithDebounce(this.state, true);
-      
-      // Clean up
-      this.hideVisualElements();
-      this.updateButtonState();
-      
-      // Show completion notification with simple message
-      CursorFlowUI.showNotification({
-        message: 'Guide Completed! 🎉',
+      // Stop the guide
+      this.stop({
+        message: 'Guide completed successfully!',
         type: 'success',
-        autoClose: 5000
+        autoClose: 3000
       });
+      
+      // Mark session inactive
+      StateManager.clearSession();
     }
 
     private createVisualElements() {
