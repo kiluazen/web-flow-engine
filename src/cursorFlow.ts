@@ -72,6 +72,17 @@ export default class CursorFlow {
       
       this.operationToken = this.generateToken();
     }
+    
+    // --- NEW Encapsulated State Setter ---
+    private setIsPlaying(value: boolean, immediateSave = false): void {
+      if (this.state.isPlaying === value) return; // Avoid redundant updates
+      
+      this.debugLog(`Setting isPlaying state to: ${value}`);
+      this.state.isPlaying = value;
+      StateManager.saveWithDebounce(this.state, immediateSave);
+      this.updateButtonState(); // Guarantee UI update
+    }
+    // --- End Encapsulated State Setter ---
   
     async init(): Promise<boolean> {
       try {
@@ -86,6 +97,9 @@ export default class CursorFlow {
           console.log('API health check successful');
         }
         
+        let needsAutoStart = false;
+        let redirectGuideId: string | null = null;
+        
         // Restore state if available
         const savedState = StateManager.restore();
         if (savedState) {
@@ -93,24 +107,9 @@ export default class CursorFlow {
           
           // Check if tab was closed during active session
           if (this.state.isPlaying && !StateManager.isSessionActive()) {
-            // Tab was closed, reset playing state
+            // Tab was closed, reset playing state using the setter
             console.log('Tab was closed, resetting playing state');
-            this.state.isPlaying = false;
-            StateManager.save(this.state);
-          } else if (this.state.isPlaying && this.state.recordingId) {
-            // If guide was playing, reload the recording and continue
-            console.log('Guide is active, loading recording');
-            await this.loadRecording(this.state.recordingId);
-            
-            // Set up navigation detection
-            this.setupNavigationDetection();
-            
-            // Proactively check for the next step to play
-            console.log('Active guide detected, finding appropriate step to play');
-            setTimeout(() => {
-              // First, try handleNavigation to see if we have a matching step for this URL
-              this.handleNavigation(true); // Pass true to indicate we want to continue even if no match
-            }, 500);
+            this.setIsPlaying(false, true); // Immediate save on reset
           }
           
           if (this.options.debug) {
@@ -118,11 +117,26 @@ export default class CursorFlow {
           }
         }
         
+        // Check for a guide that required redirect (BEFORE creating button)
+        try {
+          redirectGuideId = localStorage.getItem('hyphen_redirect_guide_id');
+          if (redirectGuideId) {
+            console.log('Found guide requiring redirect to auto-start:', redirectGuideId);
+            // Remove the guide ID immediately to prevent loops
+            localStorage.removeItem('hyphen_redirect_guide_id');
+            needsAutoStart = true;
+            // DO NOT set isPlaying here
+          }
+        } catch (err) {
+          console.error('Error checking for redirect guide:', err);
+        }
+        
         // Fetch available guides
         await this.fetchGuides();
         
-        // Add the start button to the page
-        this.createStartButton();
+        // Ensure the button exists and update its initial state
+        this.ensureStartButtonExists();
+        this.updateButtonState(); // Reflect restored state
         
         // Add a window event listener to flush state on page unload
         window.addEventListener('beforeunload', () => {
@@ -131,38 +145,35 @@ export default class CursorFlow {
           }
         });
         
-        // Check for a guide that required redirect
-        try {
-          const redirectGuideId = localStorage.getItem('hyphen_redirect_guide_id');
-          if (redirectGuideId) {
-            console.log('Found guide requiring redirect to auto-start:', redirectGuideId);
+        // Handle Auto-Start AFTER button is created and initial state rendered
+        if (needsAutoStart && redirectGuideId) {
+          // Wait a short moment for the page to fully load
+          setTimeout(() => {
+            console.log('Executing auto-start for redirect guide:', redirectGuideId);
+            // Generate operation token
+            this.operationToken = this.generateToken();
+            const currentToken = this.operationToken;
             
-            // Remove the guide ID immediately to prevent loops
-            localStorage.removeItem('hyphen_redirect_guide_id');
+            // Set playing state via the setter
+            this.setIsPlaying(true);
             
-            // Wait a short moment for the page to fully load
-            setTimeout(() => {
-              // Generate operation token
-              this.operationToken = this.generateToken();
-              const currentToken = this.operationToken;
-              
-              // Update state to playing immediately
-              this.state.isPlaying = true;
-              
-              // Update button to "Stop Guide"
-              this.updateButtonState();
-              
-              // Show thinking indicator
-              if (this.startButton) {
-                this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton);
-              }
-              
-              // Start the guide automatically
-              this.retrieveGuideData(redirectGuideId, currentToken);
-            }, 1000);
-          }
-        } catch (err) {
-          console.error('Error checking for redirect guide:', err);
+            // Show thinking indicator
+            if (this.startButton) {
+              this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton);
+            }
+            
+            // Start the guide automatically
+            this.retrieveGuideData(redirectGuideId, currentToken);
+          }, 1000); // Keep delay for page load stability
+        } else if (this.state.isPlaying && this.state.recordingId) {
+          // Handle standard restored playback state (only if not auto-starting)
+          console.log('Guide is active from restored state, loading recording');
+          await this.loadRecording(this.state.recordingId);
+          this.setupNavigationDetection();
+          console.log('Active guide detected, finding appropriate step to play');
+          setTimeout(() => {
+            this.handleNavigation(true); // Check where to resume
+          }, 500);
         }
         
         return true;
@@ -187,93 +198,100 @@ export default class CursorFlow {
       }
     }
     
-    private createStartButton() {
-      console.log('[CURSOR-FLOW-DEBUG] Creating start button');
-      console.log('[CURSOR-FLOW-DEBUG] Current buttonText:', this.options.buttonText);
+    // --- UPDATED Button Creation/Finding ---
+    private ensureStartButtonExists(): void {
+      if (this.startButton && document.body.contains(this.startButton)) {
+        // Button already exists and is in DOM
+        console.log('[CURSOR-FLOW-DEBUG] Start button already exists.');
+        return;
+      }
       
-      // First, remove any existing start buttons to prevent duplicates
-      const existingButtons = document.querySelectorAll('.hyphen-start-button');
-      existingButtons.forEach(button => button.remove());
+      // Try finding existing button in DOM first
+      const existingButton = document.querySelector('.hyphen-start-button') as HTMLElement;
+      if (existingButton) {
+        console.log('[CURSOR-FLOW-DEBUG] Found existing start button in DOM.');
+        this.startButton = existingButton;
+        // Re-attach listener just in case
+        this.startButton.removeEventListener('click', this.handleToggleClick); // Remove old if any
+        this.startButton.addEventListener('click', this.handleToggleClick);
+        return;
+      }
       
-      // Create new button
+      // If not found, create it
+      console.log('[CURSOR-FLOW-DEBUG] Creating new start button.');
       this.startButton = CursorFlowUI.createStartButton(
           this.options.buttonText || 'Guides',
           this.options.theme?.buttonColor || '#007bff',
-          () => this.toggleGuideState()
+          this.handleToggleClick // Use a bound method reference
       );
-      
       document.body.appendChild(this.startButton);
-      
-      if (this.options.debug) {
-          console.log('[CURSOR-FLOW-DEBUG] Start button created and appended to body');
-      }
-      
-      // Update button text based on current state
-      this.updateButtonState();
     }
-  
+    
+    // Method to handle the button click, bound in constructor or ensureStartButtonExists
+    private handleToggleClick = () => {
+        this.toggleGuideState();
+    }
+    // --- End Button Creation/Finding ---
+    
     private toggleGuideState() {
       if (this.state.isPlaying) {
         // If guide is playing, stop it
         this.stop();
       } else {
-        // If guide is not playing, start it
-        this.start();
+        // If guide is not playing, show dropdown (start process)
+        this.showGuidesDropdown(); 
       }
     }
   
     private updateButtonState() {
-      console.log('[CURSOR-FLOW-DEBUG] Updating button state');
-      console.log('[CURSOR-FLOW-DEBUG] Current state:', { isPlaying: this.state.isPlaying });
-      
-      if (!this.startButton) {
-          console.warn('[CURSOR-FLOW-DEBUG] No start button found to update');
-          return;
+      // Add robustness check
+      if (!this.startButton || !document.body.contains(this.startButton)) {
+          console.error('[CURSOR-FLOW-DEBUG] Attempted to update button state, but button not found or not in DOM.');
+          // Maybe try to re-ensure button exists?
+          // this.ensureStartButtonExists();
+          // if (!this.startButton) return; // If still not found, give up
+          return; 
       }
+      
+      this.debugLog('Updating button state');
+      this.debugLog('Current state:', { isPlaying: this.state.isPlaying });
       
       // Get or create the text span
       let textSpan = this.startButton.querySelector('.hyphen-text');
       if (!textSpan) {
+          console.warn('[CURSOR-FLOW-DEBUG] Button text span not found, creating it.');
           textSpan = document.createElement('span');
           textSpan.className = 'hyphen-text';
-          this.startButton.appendChild(textSpan);
+          // Ensure icon exists before appending text next to it
+          const iconDiv = this.startButton.querySelector('.hyphen-icon');
+          if (iconDiv && iconDiv.parentNode) {
+            iconDiv.parentNode.appendChild(textSpan); 
+          } else {
+            this.startButton.appendChild(textSpan); // Fallback
+          }
       }
       
       // Update text and class in a single operation
       if (this.state.isPlaying) {
-          console.log('[CURSOR-FLOW-DEBUG] Setting button to "Stop Guide"');
+          this.debugLog('Setting button to "Stop Guide"');
           textSpan.textContent = 'Stop Guide';
           this.startButton.classList.add('hyphen-playing');
       } else {
-          console.log('[CURSOR-FLOW-DEBUG] Setting button to:', this.options.buttonText || 'Guides');
+          this.debugLog('Setting button to:', this.options.buttonText || 'Guides');
           textSpan.textContent = this.options.buttonText || 'Guides';
           this.startButton.classList.remove('hyphen-playing');
       }
     }
   
-    start() {
+    // start() is effectively replaced by showGuidesDropdown when not playing
+    // We keep a simple start() concept for internal logic if needed later,
+    // but user interaction primarily goes through toggleGuideState -> showGuidesDropdown
+    private start() { 
       if (this.options.debug) {
-        console.log('Starting guide selection');
+        console.log('Attempting to start guide selection process...');
       }
-      
-      // If a guide is already playing, stop it first
-      if (this.state.isPlaying) {
-        console.log('Guide already playing, stopping it first');
-        this.stop();
-        return;
-      }
-      
-      // Set session flag
-      StateManager.setSessionActive();
-      
-      // Check if we already have guides, fetch them if not
-      if (this.guides.length === 0) {
-        this.fetchGuides().then(() => {
-          this.showGuidesDropdown();
-        });
-      } else {
-        this.showGuidesDropdown();
-      }
+       // This is now handled by the dropdown selection flow
+       this.showGuidesDropdown();
     }
   
     private showGuidesDropdown() {
@@ -287,41 +305,54 @@ export default class CursorFlow {
           dropdown.remove();
         }
         this.isDropdownOpen = false;
+        this.debugLog('Guides dropdown closed.');
         return;
       }
       
-      // Create and show dropdown
-      CursorFlowUI.showGuidesDropdown(
-        this.guides, 
-        this.startButton,
-        (guideData) => {
-          // Mark dropdown as closed when a guide is selected
-          this.isDropdownOpen = false;
-          
-          console.log('Selected guide:', guideData);
-          
-          // IMPORTANT: Generate a new operation token to cancel any in-flight operations
-          this.operationToken = this.generateToken();
-          const currentToken = this.operationToken;
-          
-          // Update state to playing immediately
-          this.state.isPlaying = true;
-          
-          // Update button to "Stop Guide" immediately
-          this.updateButtonState();
-          
-          // Show thinking indicator
-          if (this.startButton) {
-            this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton);
+      // --- Fetch guides only if needed and not already fetched ---
+      const fetchAndShow = async () => {
+          if (this.guides.length === 0) {
+             this.debugLog('No guides loaded, fetching...');
+             await this.fetchGuides();
           }
           
-          // Start loading the guide, passing the current token
-          this.retrieveGuideData(guideData.id, currentToken);
-        }
-      );
+          if (this.guides.length === 0) {
+             console.warn('No guides available after fetch.');
+             // Show a notification? For now, just don't open dropdown.
+             return;
+          }
+          
+          this.debugLog('Showing guides dropdown.');
+          // Create and show dropdown
+          CursorFlowUI.showGuidesDropdown(
+            this.guides, 
+            this.startButton!,
+            (guideData) => {
+              // Mark dropdown as closed when a guide is selected
+              this.isDropdownOpen = false;
+              this.debugLog('Guide selected from dropdown:', guideData);
+              
+              // IMPORTANT: Generate a new operation token to cancel any in-flight operations
+              this.operationToken = this.generateToken();
+              const currentToken = this.operationToken;
+              
+              // Set playing state via the setter
+              this.setIsPlaying(true);
+              
+              // Show thinking indicator
+              if (this.startButton) {
+                this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton);
+              }
+              
+              // Start loading the guide, passing the current token
+              this.retrieveGuideData(guideData.id, currentToken);
+            }
+          );
+          // Mark dropdown as open
+          this.isDropdownOpen = true;
+      };
       
-      // Mark dropdown as open
-      this.isDropdownOpen = true;
+      fetchAndShow();
     }
   
     private async retrieveGuideData(guideId: string, token: string) {
@@ -333,9 +364,12 @@ export default class CursorFlow {
           console.warn('Failed to clear previous redirect guide ID:', err);
         }
         
+        this.debugLog(`Retrieving guide data for ID: ${guideId}, Token: ${token}`);
         // Validate token at the start of operation
         if (token !== this.operationToken) {
-          console.log('Operation was cancelled, aborting guide retrieval');
+          this.debugLog('Operation was cancelled (token mismatch), aborting guide retrieval');
+          // Ensure playing state is false if cancelled here
+          this.setIsPlaying(false, true);
           return;
         }
         
@@ -344,22 +378,24 @@ export default class CursorFlow {
         
         // Check token again after async operation
         if (token !== this.operationToken) {
-          console.log('Operation was cancelled during API fetch, aborting guide processing');
+          this.debugLog('Operation was cancelled during API fetch, aborting guide processing');
+          this.setIsPlaying(false, true);
           return;
         }
         
-        console.log('Retrieved guide data:', flowData);
+        this.debugLog('Retrieved guide data:', flowData);
         
         // Get texts if needed
         const texts = await this.apiClient.getTexts(guideId);
         
         // Check token again
         if (token !== this.operationToken) {
-          console.log('Operation was cancelled during texts fetch, aborting guide processing');
+          this.debugLog('Operation was cancelled during texts fetch, aborting guide processing');
+          this.setIsPlaying(false, true);
           return;
         }
         
-        console.log('Retrieved guide texts:', texts);
+        this.debugLog('Retrieved guide texts:', texts);
         
         // Store the recording
         this.recording = flowData;
@@ -375,11 +411,12 @@ export default class CursorFlow {
         
         // Final token check before proceeding
         if (token !== this.operationToken) {
-          console.log('Operation was cancelled after step sorting, aborting guide start');
+          this.debugLog('Operation was cancelled after step sorting, aborting guide start');
+          this.setIsPlaying(false, true);
           return;
         }
         
-        // Clear previous state for this guide ID
+        // Clear previous state for this guide ID (using StateManager)
         StateManager.clear();
         
         // NEW: Check if user is on the correct starting page
@@ -392,7 +429,7 @@ export default class CursorFlow {
           const firstStep = sortedSteps[0];
           
           // Add debugging logs
-          console.log('URL CHECK DEBUG: First step data:', {
+          this.debugLog('URL CHECK DEBUG: First step data:', {
             firstStepUrl: firstStep.url,
             firstStepPageInfo: firstStep.interaction?.pageInfo,
             currentUrl: window.location.href,
@@ -414,7 +451,7 @@ export default class CursorFlow {
           const isUrlMatch = stepUrl ? ElementUtils.compareUrls(stepUrl, window.location.href) : false;
           const isPathMatch = stepPath ? window.location.pathname === stepPath : false;
           
-          console.log('URL CHECK DETAILS:', { 
+          this.debugLog('URL CHECK DETAILS:', { 
             hasUrlToCheck, 
             stepUrl, 
             stepPath, 
@@ -427,7 +464,7 @@ export default class CursorFlow {
           // Hide thinking indicator if we're showing a notification
           if (hasUrlToCheck && !isUrlMatch && !isPathMatch) {
             // User is not on the correct starting page
-            console.log('URL CHECK FAILED: User is not on the correct starting page for the guide');
+            this.debugLog('URL CHECK FAILED: User is not on the correct starting page for the guide');
             
             // Hide thinking indicator before showing notification
             if (this.thinkingIndicator) {
@@ -439,7 +476,7 @@ export default class CursorFlow {
               // Store the guide ID in localStorage for auto-start after redirect
               try {
                 localStorage.setItem('hyphen_redirect_guide_id', guideId);
-                console.log('Stored redirect guide ID in localStorage:', guideId);
+                this.debugLog('Stored redirect guide ID in localStorage:', guideId);
               } catch (err) {
                 console.error('Failed to store guide ID in localStorage:', err);
               }
@@ -451,6 +488,8 @@ export default class CursorFlow {
                 redirectUrl: redirectUrl,
                 redirectText: 'Go to start'
               });
+              // IMPORTANT: Reset playing state as we are redirecting, not playing yet
+              this.setIsPlaying(false, true);
             } else {
               // No redirect URL available
               CursorFlowUI.showNotification({
@@ -458,15 +497,17 @@ export default class CursorFlow {
                 type: 'error',
                 autoClose: 5000
               });
+              // Reset playing state as guide cannot start
+              this.setIsPlaying(false, true);
             }
             
-            return;
+            return; // Stop processing here
           }
           
-          console.log('URL CHECK PASSED: User is on the correct starting page for the guide');
+          this.debugLog('URL CHECK PASSED: User is on the correct starting page for the guide');
         }
         
-        // Start the actual guide
+        // If URL check passed or wasn't needed, start the actual guide
         await this.startGuide(guideId, token);
       } catch (error) {
         console.error('Failed to retrieve guide data:', error);
@@ -480,6 +521,7 @@ export default class CursorFlow {
         
         // Only stop if this is still the current operation
         if (token === this.operationToken) {
+          // Use stop method which handles resetting isPlaying
           this.stop({
             message: 'Failed to load guide. Please try again.',
             type: 'error',
@@ -503,7 +545,7 @@ export default class CursorFlow {
       
       // For demo purposes, create a meaningful interaction object based on the step text
       const popupText = firstStepData.popupText || '';
-      console.log('Step instruction:', popupText);
+      this.debugLog('Step instruction:', popupText);
       
       // Extract what to look for from the popup text
       let elementText = '';
@@ -524,13 +566,13 @@ export default class CursorFlow {
         action: "click"
       };
       
-      console.log('Looking for element with text:', elementText);
+      this.debugLog('Looking for element with text:', elementText);
       
       // Find the target element
       this.currentTargetElement = ElementUtils.findElementFromInteraction(interaction, false);
       
       if (this.currentTargetElement) {
-        console.log('Found target element:', this.currentTargetElement);
+        this.debugLog('Found target element:', this.currentTargetElement);
         
         // Move cursor to the element
         CursorFlowUI.moveCursorToElement(
@@ -547,7 +589,7 @@ export default class CursorFlow {
         this.positionHighlightOnElement(this.currentTargetElement, this.highlightElement);
         
         if (this.options.debug) {
-          console.log('Demo: Showing cursor and text for first step');
+          this.debugLog('Demo: Showing cursor and text for first step');
         }
       } else {
         console.warn('Could not find target element for first step');
@@ -565,11 +607,10 @@ export default class CursorFlow {
       // Generate a new token FIRST to cancel any in-flight operations
       const oldToken = this.operationToken;
       this.operationToken = this.generateToken();
-      console.log(`[STOP CALLED] Invalidating token ${oldToken}, new token ${this.operationToken}`);
+      this.debugLog(`[STOP CALLED] Invalidating token ${oldToken}, new token ${this.operationToken}`);
       
-      // Set isPlaying to false immediately to prevent concurrent operations
-      const wasPlaying = this.state.isPlaying; // Capture previous state
-      this.state.isPlaying = false;
+      // Set isPlaying to false using the setter (immediate save for cleanup)
+      this.setIsPlaying(false, true); 
       
       // Reset dropdown state
       this.isDropdownOpen = false;
@@ -608,31 +649,28 @@ export default class CursorFlow {
       }
       
       if (this.options.debug) {
-        console.log('Stopping guide - Initiating immediate cleanup');
+        this.debugLog('Stopping guide - Initiating immediate cleanup');
       }
       
       // Clean up all UI elements - pass false to ensure cursor is also cleaned up,
       // and true to keep notifications
       CursorFlowUI.cleanupAllUI(false, true);
       
-      // Reset state (isPlaying is already false)
+      // Reset state variables other than isPlaying
       this.state.currentStep = 0;
       this.state.recordingId = null;
       this.state.completedSteps = [];
       this.state.timestamp = Date.now();
       
-      // Use immediate clear instead of debounced save
+      // Use immediate clear instead of debounced save for main state
       StateManager.clear();
       StateManager.clearSession();
       
       // Remove event listeners
       this.removeExistingListeners();
       
-      // Update button state only if it was previously playing
-      // Avoids changing button if stop was called preemptively
-      if (wasPlaying) {
-        this.updateButtonState();
-      }
+      // Update button state one last time (setIsPlaying already called)
+      // this.updateButtonState(); // No - setIsPlaying handles this
       
       // Reset all element references
       this.cursorElement = null;
@@ -643,12 +681,13 @@ export default class CursorFlow {
       this.invalidationInProgress = false;
       
       if (this.options.debug) {
-        console.log('Guide stopped, state reset, cleanup complete');
+        this.debugLog('Guide stopped, state reset, cleanup complete');
       }
     }
   
     private async loadRecording(recordingId: string) {
       try {
+        this.debugLog(`Loading recording: ${recordingId}`);
         // Fetch recording data from API
         const flowData = await this.apiClient.getRecording(recordingId);
         
@@ -665,25 +704,28 @@ export default class CursorFlow {
         }
         
         // Preserve completedSteps when it's the same recording ID
-        const preserveSteps = this.state.recordingId === recordingId ? this.state.completedSteps : [];
+        // const preserveSteps = this.state.recordingId === recordingId ? this.state.completedSteps : [];
+        // StateManager.restore already handles loading existing state, including completedSteps
         
-        // Update state
+        // Update state recordingId only (isPlaying is handled elsewhere)
         this.state.recordingId = recordingId;
-        this.state.isPlaying = true;
-        this.state.currentStep = 0;
-        this.state.completedSteps = preserveSteps;
+        // this.state.isPlaying = true; // NO - isPlaying is set by the caller (init or dropdown)
+        // this.state.currentStep = 0; // No - state restore handles this or handleNavigation adjusts it
+        // this.state.completedSteps = preserveSteps; // No - state restore handles this
         
-        // Save state immediately since this is an important transition
-        StateManager.saveWithDebounce(this.state, true);
+        // Save state immediately since this is an important transition?
+        // Let StateManager handle debouncing unless immediate needed
+        StateManager.saveWithDebounce(this.state); 
         
         if (this.options.debug) {
-          console.log('Recording loaded:', recordingId, flowData);
-          console.log('Preserved completed steps:', preserveSteps);
+          this.debugLog('Recording loaded:', recordingId, flowData);
+          // this.debugLog('Preserved completed steps:', preserveSteps);
         }
         
         return flowData;
       } catch (error) {
         console.error('Failed to load recording:', error);
+        this.stop({ message: 'Failed to load guide data.', type: 'error'}); // Stop if loading fails
         throw error;
       }
     }
@@ -692,29 +734,34 @@ export default class CursorFlow {
       try {
         // Check token validity before starting
         if (token !== this.operationToken) {
-          console.log('Operation was cancelled, aborting guide start');
+          this.debugLog('Operation was cancelled (token mismatch), aborting guide start');
+          this.setIsPlaying(false, true);
           return false;
         }
         
-        if (this.options.debug) {
-          console.log('Starting guide:', guideId);
-        }
+        this.debugLog('Starting guide internally:', guideId);
         
-        // Create a new state with empty completedSteps
-        // We're removing the code that preserves old completedSteps
-        this.state = {
-          isPlaying: true,
-          currentStep: 0,
-          recordingId: guideId,
-          completedSteps: [], // Always start fresh when selecting from dropdown
-          timestamp: Date.now()
-        };
+        // Set isPlaying via setter - should already be true if called from dropdown/redirect
+        // but call again to ensure consistency
+        this.setIsPlaying(true);
+        
+        // Update state variables directly - isPlaying is handled by setter
+        this.state.currentStep = 0;
+        this.state.recordingId = guideId;
+        this.state.completedSteps = []; // Always start fresh
+        this.state.timestamp = Date.now();
         
         // Add debug logging
-        console.log('Starting guide with state:', JSON.stringify(this.state));
+        this.debugLog('Starting guide with state:', JSON.stringify(this.state));
         
-        // Load recording
-        await this.loadRecording(guideId);
+        // Load recording (should already be loaded by retrieveGuideData, but maybe call loadRecording for consistency?)
+        // Or assume this.recording is populated correctly by retrieveGuideData
+        if (!this.recording || this.recording.id !== guideId) {
+           console.warn('Recording mismatch in startGuide, attempting to reload');
+           await this.loadRecording(guideId);
+        } else {
+          this.debugLog('Recording already loaded.');
+        }
         
         // Set session active
         StateManager.setSessionActive();
@@ -725,8 +772,8 @@ export default class CursorFlow {
         // Setup navigation detection
         this.setupNavigationDetection();
         
-        // Update button state
-        this.updateButtonState();
+        // Update button state (setIsPlaying already did this)
+        // this.updateButtonState();
         
         // Play first step
         await this.playCurrentStep();
@@ -734,6 +781,7 @@ export default class CursorFlow {
         return true;
       } catch (error) {
         console.error('Failed to start guide:', error);
+        this.stop({ message: 'Failed to start guide', type: 'error'}); // Stop on error
         return false;
       }
     }
@@ -747,7 +795,7 @@ export default class CursorFlow {
       const currentPath = window.location.pathname;
       
       if (this.options.debug) {
-        console.log('DETECT CONTEXT: Current URL:', currentUrl, 'Path:', currentPath);
+        this.debugLog('DETECT CONTEXT: Current URL:', currentUrl, 'Path:', currentPath);
       }
       
       // Find steps that match the current URL without excessive logging
@@ -772,7 +820,7 @@ export default class CursorFlow {
       
       if (matchingSteps.length === 0) {
         if (this.options.debug) {
-          console.log('DETECT CONTEXT: No steps match current URL or path');
+          this.debugLog('DETECT CONTEXT: No steps match current URL or path');
         }
         return null;
       }
@@ -876,7 +924,7 @@ export default class CursorFlow {
       this.debugLog('Interaction data:', JSON.stringify(interaction));
 
 
-      // Before we search for elements, check if navigation is expected
+      // Before we search for elements, check if navigation is expectedx
       const expectedPath = interaction.pageInfo?.path;
       const currentPath = window.location.pathname;
       const isNavigationExpected = expectedPath && expectedPath !== currentPath;
