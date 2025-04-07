@@ -1078,12 +1078,31 @@ export class CursorFlowUI {
 
     // Function to update highlight position
     const updateHighlightPosition = () => {
-        if (!element || !highlight) return;
+        // Enhanced Check: Ensure element and highlight are still valid
+        if (!element || !highlight || !element.isConnected || !document.body.contains(highlight)) {
+            console.warn('[HIGHLIGHT-POSITION] Update aborted: Element/Highlight missing or disconnected.', {
+                elementExists: !!element,
+                elementConnected: element?.isConnected,
+                highlightExists: !!highlight,
+                highlightInBody: !!highlight && document.body.contains(highlight)
+            });
+            return; 
+        }
         
         try {
             const rect = element.getBoundingClientRect();
             const scrollX = window.scrollX || document.documentElement.scrollLeft;
             const scrollY = window.scrollY || document.documentElement.scrollTop;
+            
+            // Log raw rect values
+            console.log('[HIGHLIGHT-POSITION-RAW-RECT]', {
+                top: rect.top, 
+                left: rect.left, 
+                bottom: rect.bottom, 
+                right: rect.right, 
+                width: rect.width, 
+                height: rect.height 
+            });
             
             // Position highlight
             highlight.style.top = `${rect.top + scrollY - 3}px`;
