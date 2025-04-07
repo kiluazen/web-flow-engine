@@ -1230,7 +1230,22 @@ export default class CursorFlow {
               // IMPORTANT: Added visual cleanup before re-showing the same step
               this.hideVisualElements();
               console.log('handleNavigation: Cleaned up visuals before re-showing same step');
-              await this.playCurrentStep();
+              
+              // *** ADDED CHECK ***
+              const stepPlayedSuccessfully = await this.playCurrentStep();
+              if (!stepPlayedSuccessfully) {
+                console.log('handleNavigation: playCurrentStep failed after back navigation. Stopping guide.');
+                this.stop({
+                    message: 'Guide stopped: Element for this step could not be found or validated.',
+                    type: 'error',
+                    autoClose: 5000
+                });
+                // Exit navigation handling early
+                 this.isHandlingNavigation = false; 
+                 console.timeEnd('Process context step'); // End timer here before returning
+                 console.timeEnd('Navigation handling');
+                 return;
+              }
             } else {
               // Forward navigation - check if prerequisites are met
               const prerequisitesMet = this.sortedSteps.every((step: any) => {
@@ -1244,7 +1259,22 @@ export default class CursorFlow {
                 // IMPORTANT: Added visual cleanup before playing step in forward navigation
                 this.hideVisualElements();
                 console.log('handleNavigation: Cleaned up visuals before forward navigation step');
-                await this.playCurrentStep();
+                
+                 // *** ADDED CHECK ***
+                 const stepPlayedSuccessfully = await this.playCurrentStep();
+                 if (!stepPlayedSuccessfully) {
+                    console.log('handleNavigation: playCurrentStep failed during forward navigation. Stopping guide.');
+                    this.stop({
+                        message: 'Guide stopped: Element for this step could not be found or validated.',
+                        type: 'error',
+                        autoClose: 5000
+                    });
+                     // Exit navigation handling early
+                     this.isHandlingNavigation = false; 
+                     console.timeEnd('Process context step'); // End timer here before returning
+                     console.timeEnd('Navigation handling');
+                     return;
+                }
               } else {
                 console.log('handleNavigation: Prerequisites not met, showing warning');
                 

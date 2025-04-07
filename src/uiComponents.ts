@@ -1054,6 +1054,7 @@ export class CursorFlowUI {
     if ((highlight as any)._scrollResizeHandler) {
         window.removeEventListener('scroll', (highlight as any)._scrollResizeHandler);
         window.removeEventListener('resize', (highlight as any)._scrollResizeHandler);
+        window.removeEventListener('orientationchange', (highlight as any)._scrollResizeHandler); // Cleanup orientation change too
         (highlight as any)._scrollResizeHandler = null;
         console.log('[HIGHLIGHT-POSITION] Cleaned up previous scroll/resize handlers');
     }
@@ -1062,6 +1063,13 @@ export class CursorFlowUI {
         (highlight as any)._observer.disconnect();
         (highlight as any)._observer = null;
         console.log('[HIGHLIGHT-POSITION] Cleaned up previous mutation observer');
+    }
+    
+    // IMPORTANT: Cancel any pending animation frame from previous positioning
+    if ((highlight as any)._frameRequestId) {
+        cancelAnimationFrame((highlight as any)._frameRequestId);
+        (highlight as any)._frameRequestId = null;
+        console.log('[HIGHLIGHT-POSITION] Cleaned up previous animation frame request');
     }
 
     // IMPORTANT: Always remove highlight from current parent and attach directly to document.body
@@ -1114,24 +1122,20 @@ export class CursorFlowUI {
                 viewport: { width: window.innerWidth, height: window.innerHeight }
             });
             
-            // IMPORTANT: First set transition to none to prevent animation during position updates
-            highlight.style.transition = 'none';
-            
-            // IMPORTANT: Reset any transforms that might interfere
-            highlight.style.transform = 'none';
+            // *** IMPORTANT: Set transition to none *before* updating position ***
+            highlight.style.transition = 'none'; 
             
             // Position highlight with a slight expansion for visibility (+6px width/height, -3px top/left)
+            highlight.style.transform = 'none'; // Reset transform just in case
             highlight.style.top = `${rect.top + scrollY - 3}px`;
             highlight.style.left = `${rect.left + scrollX - 3}px`;
             highlight.style.width = `${rect.width + 6}px`;
             highlight.style.height = `${rect.height + 6}px`;
             highlight.style.opacity = '1'; // Ensure visibility
-            
-            // Force reflow before enabling transitions again
-            highlight.offsetHeight; // This line forces a reflow
-            
-            // Enable smooth transitions for subsequent updates
-            highlight.style.transition = 'top 0.2s, left 0.2s, width 0.2s, height 0.2s';
+
+            // NOTE: Removed the re-application of transitions to avoid potential visual glitches during rapid updates
+            // highlight.offsetHeight; // Force reflow
+            // highlight.style.transition = 'top 0.2s, left 0.2s, width 0.2s, height 0.2s'; 
             
             console.log('[HIGHLIGHT-POSITION] Updated highlight position:', {
                 element: `${element.tagName}#${element.id || 'noId'}`,
@@ -1151,19 +1155,21 @@ export class CursorFlowUI {
     // Initial position update - call immediately
     updateHighlightPosition();
     
-    // IMPORTANT: Create a dedicated handler for scroll and resize events with debouncing
-    let positionUpdateDebounce: any = null;
+    // *** IMPORTANT: Modify scroll/resize handling using requestAnimationFrame ***
+    let frameRequestId: number | null = null; // Track animation frame request
+
     const scrollResizeHandler = (event: Event) => {
-        // Clear any existing timeout to prevent multiple rapid updates
-        if (positionUpdateDebounce) {
-            clearTimeout(positionUpdateDebounce);
+        // If a frame is already requested, don't request another to avoid backlog
+        if (frameRequestId) {
+            return; 
         }
         
-        // Use a short timeout for smoother performance during rapid events like scrolling
-        positionUpdateDebounce = setTimeout(() => {
-            console.log(`[HIGHLIGHT-POSITION] ${event.type} event detected, updating position`);
+        // Request the next animation frame to update the position
+        frameRequestId = requestAnimationFrame(() => {
+            console.log(`[HIGHLIGHT-POSITION] ${event.type} event triggered update via rAF`);
             updateHighlightPosition();
-        }, 10); // Very short delay for responsive updates
+            frameRequestId = null; // Reset after execution, allowing next frame request
+        });
     };
     
     // IMPORTANT: Create a more robust mutation observer for DOM changes
@@ -1174,24 +1180,25 @@ export class CursorFlowUI {
         characterData: true // Also watch for text changes
     };
     
+    let mutationDebounceTimeout: any = null; // Use debounce for mutations to avoid excessive updates
     const mutationHandler = (mutations: MutationRecord[]) => {
         // Check if any mutations are relevant to our element
         const relevantMutation = mutations.some(mutation => {
-            // Either the element itself changed
+            // Either the element itself changed or is affected by changes
             return element.contains(mutation.target) || 
-                   // Or the element's parent structure changed
-                   (mutation.target instanceof Node && mutation.target.contains(element));
+                   (mutation.target instanceof Node && mutation.target.contains(element)) ||
+                   mutation.target === element;
         });
         
         if (relevantMutation) {
-            if (positionUpdateDebounce) {
-                clearTimeout(positionUpdateDebounce);
+            if (mutationDebounceTimeout) {
+                clearTimeout(mutationDebounceTimeout);
             }
             
-            positionUpdateDebounce = setTimeout(() => {
+            mutationDebounceTimeout = setTimeout(() => {
                 console.log('[HIGHLIGHT-POSITION] Relevant DOM mutation detected, updating position');
                 updateHighlightPosition();
-            }, 50); // Slightly longer delay for DOM mutations
+            }, 50); // Keep a small debounce for DOM mutations
         }
     };
     
@@ -1215,6 +1222,8 @@ export class CursorFlowUI {
     // Store handlers and observer on highlight for cleanup
     (highlight as any)._scrollResizeHandler = scrollResizeHandler;
     (highlight as any)._observer = observer;
+    (highlight as any)._frameRequestId = frameRequestId; // Store frame ID for potential cleanup
+    (highlight as any)._mutationDebounceTimeout = mutationDebounceTimeout; // Store debounce ID for cleanup
     
     // Add event listeners with passive flag for better performance
     window.addEventListener('scroll', scrollResizeHandler, { passive: true });
@@ -1223,7 +1232,7 @@ export class CursorFlowUI {
     // Also listen for window orientation changes on mobile
     window.addEventListener('orientationchange', scrollResizeHandler);
     
-    console.log('[HIGHLIGHT-POSITION] Setup complete: Added event listeners and observers');
+    console.log('[HIGHLIGHT-POSITION] Setup complete: Added event listeners (using rAF) and observers');
     
     // Double-check position after a short delay to catch any post-rendering changes
     setTimeout(updateHighlightPosition, 100);
@@ -1263,12 +1272,23 @@ export class CursorFlowUI {
             if ((highlight as any)._scrollResizeHandler) {
                 window.removeEventListener('scroll', (highlight as any)._scrollResizeHandler);
                 window.removeEventListener('resize', (highlight as any)._scrollResizeHandler);
+                window.removeEventListener('orientationchange', (highlight as any)._scrollResizeHandler); // Cleanup orientation change
                 (highlight as any)._scrollResizeHandler = null;
             }
             
             if ((highlight as any)._observer) {
                 (highlight as any)._observer.disconnect();
                 (highlight as any)._observer = null;
+            }
+            
+            // IMPORTANT: Cancel pending animation frame and mutation debounce on cleanup
+            if ((highlight as any)._frameRequestId) {
+                cancelAnimationFrame((highlight as any)._frameRequestId);
+                (highlight as any)._frameRequestId = null;
+            }
+            if ((highlight as any)._mutationDebounceTimeout) {
+                clearTimeout((highlight as any)._mutationDebounceTimeout);
+                (highlight as any)._mutationDebounceTimeout = null;
             }
             
             // Remove reference to target element
