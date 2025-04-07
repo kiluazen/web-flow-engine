@@ -1027,38 +1027,27 @@ export default class CursorFlow {
     }
   
     private async showVisualElements(targetElement: HTMLElement, interaction: any, token: string) {
-      // Check token at the beginning
       if (token !== this.operationToken) {
-        this.debugLog(`[showVisualElements] Operation cancelled (token mismatch). Aborting.`);
-        return; 
+        this.debugLog('[CursorFlow] Aborting visual elements due to token mismatch.');
+        return;
       }
-
-      // Create cursor element if not already created
+      
+      if (!targetElement || !targetElement.isConnected) {
+        this.debugLog('[CursorFlow] Aborting visual elements. Target is null or disconnected.');
+        return;
+      }
+      
+      // Get safe text from interaction
+      let annotationText = '';
+      try {
+        annotationText = interaction.text || '';
+      } catch (e) {
+        console.error('[CursorFlow] Error getting annotation text:', e);
+      }
+      
+      // Create cursor element if not exists
       if (!this.cursorElement) {
         this.cursorElement = CursorFlowUI.createCursor(this.options.theme || {});
-      }
-      
-      // Check if element is in view and scroll to it if needed - always check, even if validation did some scrolling
-      // This ensures the element is properly centered for user visibility
-      const isInView = ElementUtils.isElementInView(targetElement);
-      if (!isInView) {
-        if (this.options.debug) {
-          console.log('[CursorFlow] Target element is not in view, scrolling to it');
-        }
-        await ElementUtils.scrollToElement(targetElement);
-      } else if (this.options.debug) {
-        console.log('[CursorFlow] Target element is already in view, no need to scroll');
-      }
-      
-      // Get annotation text
-      let annotationText = '';
-       // Ensure we reference the step correctly, especially after potential state correction
-      const stepData = this.sortedSteps[this.state.currentStep];
-      if (stepData) {
-        annotationText = stepData.annotation || stepData.popupText || 'Perform the next action'; // More generic default
-      } else {
-         console.warn('[CursorFlow] Could not find step data to retrieve annotation.');
-         annotationText = 'Perform the next action';
       }
       
       // Create and position highlight using CursorFlowUI
@@ -1080,7 +1069,27 @@ export default class CursorFlow {
       const textPopup = CursorFlowUI.createTextPopup(annotationText, this.options.theme || {});
       CursorFlowUI.positionTextPopupNearCursor(this.cursorElement, textPopup);
       
-      this.debugLog('[CursorFlow] Visual elements shown for element:', targetElement);
+      // Add detailed logging of element position when visual elements are shown
+      const rect = targetElement.getBoundingClientRect();
+      const viewportDimensions = {
+          width: window.innerWidth,
+          height: window.innerHeight
+      };
+      this.debugLog('[VISUAL-ELEMENTS] Elements shown for:', {
+          element: targetElement.tagName + (targetElement.id ? '#' + targetElement.id : ''),
+          position: {
+              top: Math.round(rect.top),
+              bottom: Math.round(rect.bottom),
+              left: Math.round(rect.left),
+              right: Math.round(rect.right),
+              inViewport: this.isElementPartiallyInViewport(targetElement)
+          },
+          viewport: viewportDimensions,
+          relativePosition: {
+              percentFromTop: Math.round((rect.top / viewportDimensions.height) * 100) + '%',
+              percentFromLeft: Math.round((rect.left / viewportDimensions.width) * 100) + '%'
+          }
+      });
     }
   
     private hideVisualElements() {
@@ -1627,54 +1636,76 @@ export default class CursorFlow {
         // Ensure no loop is already running
         this.stopValidationLoop();
 
-        if (!this.state.isPlaying) return; // Don't start if not playing
+        if (!this.state.isPlaying || !this.currentTargetElement) {
+            this.debugLog('[VALIDATION] Starting validation loop ABORTED: Not playing or no target element.');
+            return;
+        }
 
-        this.debugLog('Starting validation loop for current step.');
+        this.debugLog('[VALIDATION] Starting validation loop for current step.');
 
-        // Set a reasonable validation interval (e.g., every 500ms instead of every frame)
-        // This significantly reduces the number of validations while still being responsive
-        const VALIDATION_INTERVAL_MS = 500;
+        // Keep a reference to the element being validated in this loop instance
+        const elementToValidate = this.currentTargetElement;
+        // Get the corresponding interaction data for validation context
+        const interactionData = this.sortedSteps[this.state.currentStep]?.interaction;
+
+        const VALIDATION_INTERVAL_MS = 500; // Interval for checks
         let lastValidationTime = Date.now();
 
         const loopFn = () => {
-            if (!this.state.isPlaying || !this.currentTargetElement || this.validationLoopId === null) {
-                // Stop conditions: not playing, no target, or loop explicitly stopped
-                this.validationLoopId = null; // Ensure it's null if stopping implicitly
+            // Stop conditions
+            if (!this.state.isPlaying || this.validationLoopId === null || this.currentTargetElement !== elementToValidate) {
+                this.debugLog('[VALIDATION] Stopping loop (state changed or cancelled).');
+                this.validationLoopId = null;
                 return;
             }
 
             const currentTime = Date.now();
-            
-            // Only perform validation check if enough time has passed since last check
+
+            // Only perform validation check if enough time has passed
             if (currentTime - lastValidationTime >= VALIDATION_INTERVAL_MS) {
                 lastValidationTime = currentTime;
                 
-                // Use a try-catch block for safety during validation
                 try {
-                    // Check if the element is still connected to the DOM *before* validation
-                    if (!this.currentTargetElement.isConnected) {
-                        this.debugLog('Target element disconnected from DOM. Handling step invalidation.');
+                    // SANITY CHECK: Basic DOM connection check
+                    if (!elementToValidate.isConnected) {
+                        this.debugLog('[VALIDATION] CRITICAL: Target element disconnected from DOM!');
                         this.handleStepInvalidation('Element removed from DOM');
-                        return; // Stop the loop
+                        return;
                     }
 
-                    // Perform the validation
-                    const isValid = SelectiveDomAnalyzer.validateCandidateElement(this.currentTargetElement);
-
-                    if (!isValid) {
-                        this.debugLog('Target element failed validation check. Handling step invalidation.');
-                        this.handleStepInvalidation('Element became invalid (hidden, occluded, etc.)');
-                        return; // Stop the loop
+                    // CRITICAL FIX: Check viewport status FIRST before any validation
+                    const isInViewport = this.isElementPartiallyInViewport(elementToValidate);
+                    this.debugLog(`[VALIDATION] Viewport check: Element is ${isInViewport ? 'VISIBLE' : 'NOT VISIBLE'} in viewport.`);
+                    
+                    // KEY CHANGE: For partially visible elements, always pass validation
+                    // This addresses the sensitivity issue when scrolling
+                    if (isInViewport) {
+                        this.debugLog('[VALIDATION] Element is at least partially visible - PASSING validation');
+                        // Continue the loop without further checks as long as element is partially visible
+                    } else {
+                        // Only if completely outside viewport, do relaxed validation
+                        this.debugLog('[VALIDATION] Element completely outside viewport, performing RELAXED validation only.');
+                        
+                        const isRelaxedValid = SelectiveDomAnalyzer.validateCandidateElement(
+                            elementToValidate,
+                            interactionData,
+                            'relaxed'
+                        );
+                        
+                        if (!isRelaxedValid) {
+                            this.debugLog('[VALIDATION] CRITICAL: Element failed even RELAXED validation while outside viewport.');
+                            this.handleStepInvalidation('Element identity changed');
+                            return;
+                        }
+                        
+                        this.debugLog('[VALIDATION] Element passed relaxed validation while outside viewport.');
                     }
                 } catch (error) {
-                    console.error('[CursorFlow] Error during validation loop:', error);
-                    // Optionally stop the guide on error, or just log and continue
-                    // this.handleStepInvalidation('Error during element validation');
-                    // return;
+                    console.error('[VALIDATION] Error during loop:', error);
                 }
             }
 
-            // If still valid, request the next frame
+            // Continue the loop
             this.validationLoopId = requestAnimationFrame(loopFn);
         };
 
@@ -1684,10 +1715,28 @@ export default class CursorFlow {
 
     private stopValidationLoop() {
         if (this.validationLoopId !== null) {
-            this.debugLog('Stopping validation loop.');
+            this.debugLog('[VALIDATION] Stopping validation loop.');
             cancelAnimationFrame(this.validationLoopId);
             this.validationLoopId = null;
         }
+    }
+
+    // More lenient viewport check - detects if element is at least partially visible
+    private isElementPartiallyInViewport(element: HTMLElement | null): boolean {
+        if (!element) return false;
+        const rect = element.getBoundingClientRect();
+        
+        // Element is at least partially visible if:
+        const isPartiallyVisible = (
+            rect.top < (window.innerHeight + 100) && // Element top is above bottom edge (with 100px buffer)
+            rect.bottom > -100 &&                    // Element bottom is below top edge (with 100px buffer)
+            rect.left < (window.innerWidth + 100) && // Element left is before right edge (with 100px buffer)
+            rect.right > -100                        // Element right is after left edge (with 100px buffer)
+        );
+        
+        this.debugLog(`[VALIDATION-VIEWPORT] ${element.tagName}#${element.id || 'noId'} position: top=${Math.round(rect.top)}, bottom=${Math.round(rect.bottom)}, left=${Math.round(rect.left)}, right=${Math.round(rect.right)}, isPartiallyVisible=${isPartiallyVisible}`);
+        
+        return isPartiallyVisible;
     }
 
     private handleStepInvalidation(reason: string) {

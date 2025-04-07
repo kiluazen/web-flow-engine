@@ -1045,7 +1045,8 @@ export class CursorFlowUI {
             tag: element.tagName,
             id: element.id,
             classes: element.className
-        }
+        },
+        timestamp: new Date().toISOString()
     });
 
     // Remove highlight from current parent if it exists
@@ -1094,17 +1095,40 @@ export class CursorFlowUI {
             
             lastRect = rect;
             
-            // COMMENTED OUT: Removed excessive logging
-            // console.log('[HIGHLIGHT-POSITION] Updated highlight position for element:', {
-            //     elementRect: rect,
-            //     highlightPosition: {
-            //         top: highlight.style.top,
-            //         left: highlight.style.left,
-            //         width: highlight.style.width,
-            //         height: highlight.style.height,
-            //         zIndex: highlight.style.zIndex
-            //     }
-            // });
+            // Check if element is in viewport and log
+            const isInViewport = rect.top < (window.innerHeight + 100) && 
+                                 rect.bottom > -100 && 
+                                 rect.left < (window.innerWidth + 100) && 
+                                 rect.right > -100;
+            
+            console.log('[HIGHLIGHT-POSITION] Updated highlight position:', {
+                elementId: element.id || 'noId',
+                elementTag: element.tagName,
+                elementPosition: {
+                    top: Math.round(rect.top),
+                    left: Math.round(rect.left),
+                    bottom: Math.round(rect.bottom),
+                    right: Math.round(rect.right)
+                },
+                scroll: { x: scrollX, y: scrollY },
+                highlightPosition: {
+                    top: highlight.style.top,
+                    left: highlight.style.left,
+                    width: highlight.style.width,
+                    height: highlight.style.height
+                },
+                viewport: {
+                    width: window.innerWidth,
+                    height: window.innerHeight
+                },
+                inViewport: isInViewport,
+                outOfViewportDetails: !isInViewport ? {
+                    topOffBy: rect.top < 0 ? rect.top : null,
+                    bottomOffBy: rect.bottom > window.innerHeight ? (rect.bottom - window.innerHeight) : null,
+                    leftOffBy: rect.left < 0 ? rect.left : null,
+                    rightOffBy: rect.right > window.innerWidth ? (rect.right - window.innerWidth) : null
+                } : null
+            });
         } catch (error) {
             console.error('[HIGHLIGHT-POSITION] Error updating highlight position:', error);
         }
@@ -1122,13 +1146,16 @@ export class CursorFlowUI {
             
             if (stabilityAttempts < MAX_STABILITY_ATTEMPTS) {
                 // Position changed, wait a bit and check again
+                console.log(`[HIGHLIGHT-POSITION] Position unstable, attempt ${stabilityAttempts}/${MAX_STABILITY_ATTEMPTS}`);
                 setTimeout(checkStability, 50);
             } else {
                 // Max attempts reached, use final position
+                console.log(`[HIGHLIGHT-POSITION] Max stability attempts reached, using current position`);
                 updateHighlightPosition();
             }
         } else {
             // Position has stabilized
+            console.log(`[HIGHLIGHT-POSITION] Position stabilized after ${stabilityAttempts} attempts`);
             updateHighlightPosition();
         }
     };
@@ -1138,11 +1165,13 @@ export class CursorFlowUI {
     
     // Create handler for scroll and resize events
     const scrollResizeHandler = () => {
+        console.log('[HIGHLIGHT-POSITION] Scroll/resize detected, updating highlight position');
         requestAnimationFrame(updateHighlightPosition);
     };
     
     // Create mutation observer for DOM changes
     const observer = new MutationObserver(() => {
+        console.log('[HIGHLIGHT-POSITION] DOM mutation detected, updating highlight position');
         requestAnimationFrame(updateHighlightPosition);
     });
     
