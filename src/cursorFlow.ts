@@ -1003,9 +1003,9 @@ export default class CursorFlow {
       this.debugLog('Successfully identified target element:', this.currentTargetElement.outerHTML.substring(0, 150) + '...');
 
       console.time('Show visual elements');
-      // Pass the current token to showVisualElements
+      // Pass the current token and the step data to showVisualElements
       const currentToken = this.operationToken;
-      await this.showVisualElements(this.currentTargetElement, interaction, currentToken); 
+      await this.showVisualElements(this.currentTargetElement, currentStep, currentToken); // Pass currentStep here
       console.timeEnd('Show visual elements');
       
       // Check token again after showing visuals, before setting up interaction
@@ -1026,7 +1026,7 @@ export default class CursorFlow {
       return true;
     }
   
-    private async showVisualElements(targetElement: HTMLElement, interaction: any, token: string) {
+    private async showVisualElements(targetElement: HTMLElement, stepData: any, token: string) { // Renamed interaction to stepData and updated type
       if (token !== this.operationToken) {
         this.debugLog('[CursorFlow] Aborting visual elements due to token mismatch.');
         return;
@@ -1037,10 +1037,11 @@ export default class CursorFlow {
         return;
       }
       
-      // Get safe text from interaction
+      // Get safe text from step data's annotation field
       let annotationText = '';
       try {
-        annotationText = interaction.text || '';
+        // Access the annotation from the stepData object
+        annotationText = stepData.annotation || ''; 
       } catch (e) {
         console.error('[CursorFlow] Error getting annotation text:', e);
       }
@@ -1062,7 +1063,7 @@ export default class CursorFlow {
       CursorFlowUI.moveCursorToElement(
         targetElement,
         this.cursorElement,
-        interaction
+        stepData
       );
       
       // Create and position text popup
