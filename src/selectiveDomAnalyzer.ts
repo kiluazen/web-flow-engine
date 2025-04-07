@@ -33,15 +33,20 @@ export class SelectiveDomAnalyzer {
      * visibility, interactivity, and occlusion checks.
      * @param element The candidate HTMLElement found by a primary finder.
      * @param interaction The original interaction data (optional, for context).
+     * @param validationMode 'strict' performs all checks, 'relaxed' performs basic identity checks.
      * @returns True if the element is deemed valid, false otherwise.
      */
-    static validateCandidateElement(element: HTMLElement, interaction?: any): boolean {
+    static validateCandidateElement(
+        element: HTMLElement,
+        interaction?: any,
+        validationMode: 'strict' | 'relaxed' = 'strict'
+    ): boolean {
         if (!element || !(element instanceof HTMLElement)) {
             // Keep logs minimal unless debugging
             // console.log('[SelectiveDomAnalyzer] Validation failed: Invalid element provided.');
             return false;
         }
-         // Check if the element is still connected to the DOM
+         // Check if the element is still connected to the DOM (ALWAYS CHECK)
         if (!element.isConnected) {
             if (this.debugMode) {
                 console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: Element not connected to DOM.`);
@@ -53,82 +58,92 @@ export class SelectiveDomAnalyzer {
         let isValid = true;
         let failureReason = '';
 
-        // --- REMOVED: Automatic scroll-into-view from validation check ---
-        // const isInView = this.isElementInViewport(element);
-        // if (!isInView) {
-        //     console.log('[SelectiveDomAnalyzer] Element is out of viewport, scrolling into view before validation');
-        //     this.scrollElementIntoView(element);
-        //     // ... scroll delay logic removed ...
-        // }
-        // --- End removal ---
+        // --- Basic Relaxed Checks (always run at the start for efficiency) ---
 
-        // 1. Visibility Check
-        if (!this.isElementVisible(element)) {
-            isValid = false;
-            failureReason = 'Element not visible (size, display, visibility, DOM connection)';
-        }
-
-        // 2. Interactivity Check (only if visible)
-        if (isValid && !this.isInteractiveElement(element)) {
-            console.log(`[SelectiveDomAnalyzer] Element ${element.tagName}#${element.id} is visible but not marked interactive by detailed check.`);
-            // Depending on strictness, you might set isValid = false here.
-            // Let's keep it potentially valid if it's visible for now.
-        }
-
-        // 3. Occlusion Check (Topmost Element) (only if visible)
-        if (isValid && !this.isTopElement(element)) {
-            isValid = false;
-            failureReason = 'Element is obscured by another element';
-        }
-
-        // 4. Text Content Re-verification
-        if (isValid && interaction?.element?.textContent) {
-            const targetText = interaction.element.textContent;
-            if (!this.isTextMatch(element, targetText)) {
-                 console.warn(`[SelectiveDomAnalyzer] Text content mismatch for ${element.tagName}#${element.id}. Expected: "${targetText}", Found: "${element.textContent?.trim()}"`);
-                 // MODIFIED: Treat text mismatch as a hard failure
-                 isValid = false;
-                 failureReason = 'Text content mismatch';
-            }
-        }
-
-        // --- ADDED: Structural Validation against Original Data ---
-
-        // 5. Tag Name Check
+        // 1. Tag Name Check (Relaxed)
         const originalTagName = interaction?.element?.tagName;
-        if (isValid && originalTagName && element.tagName !== originalTagName) {
+        if (originalTagName && element.tagName !== originalTagName) {
             if (this.debugMode) {
-                 console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: Tag name mismatch (Expected: ${originalTagName}, Found: ${element.tagName})`);
+                 console.log(`[SelectiveDomAnalyzer] Validation FAILED (Relaxed) for ${element.tagName}#${element.id}: Tag name mismatch (Expected: ${originalTagName}, Found: ${element.tagName})`);
             }
             isValid = false;
             failureReason = 'Tag name mismatch';
         }
 
-        // 6. ID Check
+        // 2. ID Check (Relaxed)
         const originalId = interaction?.element?.id;
         if (isValid && originalId && element.id !== originalId) {
-            // Allow partial matches for dynamic IDs (e.g., Mantine)
-            // Basic check: if original ID contains '-', assume dynamic potential
-            if (!originalId.includes('-')) { 
+            // Allow partial matches for dynamic IDs (e.g., Mantine) - only fail if NOT dynamic
+            // Check if originalId exists and does not include '-' before failing
+            if (originalId && !originalId.includes('-')) {
                  if (this.debugMode) {
-                    console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: ID mismatch (Expected: ${originalId}, Found: ${element.id})`);
+                    console.log(`[SelectiveDomAnalyzer] Validation FAILED (Relaxed) for ${element.tagName}#${element.id}: ID mismatch (Expected: ${originalId}, Found: ${element.id})`);
                  }
                 isValid = false;
                 failureReason = 'ID mismatch';
-            } else if (this.debugMode) {
+            } else if (this.debugMode && originalId) { // Only log if originalId exists
                 // Log if skipping due to potential dynamic ID
                 console.log(`[SelectiveDomAnalyzer] Skipping strict ID check for potential dynamic ID (Original: ${originalId}, Found: ${element.id})`);
             }
         }
-        
-        // 7. Key Attribute Check (Example: href for <a> tags)
-        // Note: Parsing attributes can be complex. Start simple.
+
+
+        // --- Stop here if relaxed mode or basic checks failed ---
+        if (validationMode === 'relaxed' || !isValid) {
+            // Log relaxed failure if applicable
+             const duration = performance.now() - checkStartTime;
+             if (!isValid && this.debugMode) {
+                console.log(`[SelectiveDomAnalyzer] Validation FAILED (Relaxed) for ${element.tagName}#${element.id}: ${failureReason} (took ${duration.toFixed(2)}ms)`);
+            } else if (!isValid) {
+                 console.warn(`[SelectiveDomAnalyzer] Validation FAILED (Relaxed): ${failureReason}`);
+            }
+             // Log success for relaxed mode if it passed
+            else if (isValid && validationMode === 'relaxed' && this.debugMode) {
+                console.log(`[SelectiveDomAnalyzer] Validation PASSED (Relaxed) for ${element.tagName}#${element.id} (took ${duration.toFixed(2)}ms)`);
+            }
+            return isValid;
+        }
+
+
+        // --- Strict Checks (only run if in 'strict' mode and basic checks passed) ---
+
+        // 3. Visibility Check (Strict)
+        if (!this.isElementVisible(element)) {
+            isValid = false;
+            failureReason = 'Element not visible (size, display, visibility)';
+        }
+
+        // 4. Interactivity Check (Strict) - Informational, doesn't fail validation for now
+        if (isValid && !this.isInteractiveElement(element)) {
+            // Keep this as a log for now, doesn't fail the step
+            if (this.debugMode) {
+                 console.log(`[SelectiveDomAnalyzer] Element ${element.tagName}#${element.id} is visible but not strictly interactive.`);
+            }
+        }
+
+        // 5. Occlusion Check (Topmost Element) (Strict)
+        if (isValid && !this.isTopElement(element)) {
+            isValid = false;
+            failureReason = 'Element is obscured by another element';
+        }
+
+        // 6. Text Content Re-verification (Strict)
+        if (isValid && interaction?.element?.textContent) {
+            const targetText = interaction.element.textContent;
+            if (!this.isTextMatch(element, targetText)) {
+                 console.warn(`[SelectiveDomAnalyzer] Text content mismatch for ${element.tagName}#${element.id}. Expected: "${targetText}", Found: "${element.textContent?.trim()}"`);
+                 // MODIFIED: Treat text mismatch as a hard failure in strict mode
+                 isValid = false;
+                 failureReason = 'Text content mismatch';
+            }
+        }
+
+        // 7. Key Attribute Check (Strict)
         const originalAttributes = interaction?.element?.attributes;
-        // Ensure we check if parsedAttrs exists before accessing properties
         if (isValid && originalAttributes) {
             let parsedAttrs: Record<string, any> | null = null;
             if (typeof originalAttributes === 'string') {
-                try { parsedAttrs = JSON.parse(originalAttributes); } catch (e) { /* ignore parse error */ }
+                try { parsedAttrs = JSON.parse(originalAttributes); } catch (e) { /* ignore */ }
             } else if (typeof originalAttributes === 'object') {
                 parsedAttrs = originalAttributes;
             }
@@ -136,43 +151,37 @@ export class SelectiveDomAnalyzer {
             if (parsedAttrs) {
                 if (element.tagName === 'A' && parsedAttrs.href) {
                     const candidateHref = element.getAttribute('href');
-                    // Basic comparison (could be enhanced for relative/absolute URLs)
                     if (candidateHref !== parsedAttrs.href) {
                          if (this.debugMode) {
-                             console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: href attribute mismatch (Expected: ${parsedAttrs.href}, Found: ${candidateHref})`);
+                             console.log(`[SelectiveDomAnalyzer] Validation FAILED (Strict) for ${element.tagName}#${element.id}: href mismatch`);
                          }
                          isValid = false;
                          failureReason = 'href mismatch';
                     }
                 }
-                 // Add check for 'name' attribute on INPUT elements
                 if (element.tagName === 'INPUT' && parsedAttrs.name) {
                      const candidateName = element.getAttribute('name');
                      if (candidateName !== parsedAttrs.name) {
                          if (this.debugMode) {
-                             console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: name attribute mismatch (Expected: ${parsedAttrs.name}, Found: ${candidateName})`);
+                             console.log(`[SelectiveDomAnalyzer] Validation FAILED (Strict) for ${element.tagName}#${element.id}: name mismatch`);
                          }
                          isValid = false;
                          failureReason = 'name mismatch';
                      }
                 }
-                // TODO: Add checks for other key attributes (e.g., type for input, role)
             }
         }
-        
-        // --- End Structural Validation ---
 
-        // Always log the result
+        // --- Final Logging ---
         const duration = performance.now() - checkStartTime;
         if (this.debugMode) {
             if (isValid) {
-                console.log(`[SelectiveDomAnalyzer] Validation PASSED for ${element.tagName}#${element.id} (took ${duration.toFixed(2)}ms)`);
+                console.log(`[SelectiveDomAnalyzer] Validation PASSED (Strict) for ${element.tagName}#${element.id} (took ${duration.toFixed(2)}ms)`);
             } else {
-                console.log(`[SelectiveDomAnalyzer] Validation FAILED for ${element.tagName}#${element.id}: ${failureReason} (took ${duration.toFixed(2)}ms)`);
+                console.log(`[SelectiveDomAnalyzer] Validation FAILED (Strict) for ${element.tagName}#${element.id}: ${failureReason} (took ${duration.toFixed(2)}ms)`);
             }
         } else if (!isValid) {
-            // When not in debug mode, only log failures
-            console.warn(`[SelectiveDomAnalyzer] Validation FAILED: ${failureReason}`);
+            console.warn(`[SelectiveDomAnalyzer] Validation FAILED (Strict): ${failureReason}`);
         }
 
         return isValid;
