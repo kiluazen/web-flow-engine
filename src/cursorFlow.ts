@@ -1080,16 +1080,7 @@ export default class CursorFlow {
       const textPopup = CursorFlowUI.createTextPopup(annotationText, this.options.theme || {});
       CursorFlowUI.positionTextPopupNearCursor(this.cursorElement, textPopup);
       
-      if (this.options.debug) {
-        console.log('[CursorFlow] Visual elements shown for element:', targetElement);
-      }
-
-      // Potentially add token checks after async operations like scrollToElement if needed
-      await ElementUtils.scrollToElement(targetElement);
-      if (token !== this.operationToken) {
-         this.debugLog(`[showVisualElements] Operation cancelled after scroll. Aborting.`);
-         return;
-      }
+      this.debugLog('[CursorFlow] Visual elements shown for element:', targetElement);
     }
   
     private hideVisualElements() {
