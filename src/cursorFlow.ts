@@ -1197,6 +1197,9 @@ export default class CursorFlow {
                 this.state.currentStep = this.recording.steps.indexOf(nextExpectedStep);
                 console.timeEnd('Check completed steps');
                 console.time('Play step');
+                // IMPORTANT: Added visual cleanup before playing next step
+                this.hideVisualElements();
+                console.log('handleNavigation: Cleaned up visuals before playing next step');
                 await this.playCurrentStep();
                 console.timeEnd('Play step');
                 console.timeEnd('Navigation handling');
@@ -1224,6 +1227,9 @@ export default class CursorFlow {
             if (isBackNavigation) {
               console.log('handleNavigation: Back navigation detected, showing step again');
               this.state.currentStep = this.recording.steps.indexOf(contextStep);
+              // IMPORTANT: Added visual cleanup before re-showing the same step
+              this.hideVisualElements();
+              console.log('handleNavigation: Cleaned up visuals before re-showing same step');
               await this.playCurrentStep();
             } else {
               // Forward navigation - check if prerequisites are met
@@ -1235,9 +1241,16 @@ export default class CursorFlow {
               if (prerequisitesMet) {
                 console.log('handleNavigation: Prerequisites met, playing step');
                 this.state.currentStep = this.recording.steps.indexOf(contextStep);
+                // IMPORTANT: Added visual cleanup before playing step in forward navigation
+                this.hideVisualElements();
+                console.log('handleNavigation: Cleaned up visuals before forward navigation step');
                 await this.playCurrentStep();
               } else {
                 console.log('handleNavigation: Prerequisites not met, showing warning');
+                
+                // IMPORTANT: Added visual cleanup before showing error
+                this.hideVisualElements();
+                console.log('handleNavigation: Cleaned up visuals before prerequisites warning');
                 
                 // Find first incomplete step more efficiently
                 const firstIncompleteStep = this.sortedSteps.find((step: any) => {
@@ -1278,8 +1291,15 @@ export default class CursorFlow {
             });
             if (allCompleted && allSteps.length > 0) {
                 console.log('handleNavigation: All guide steps completed');
+                // IMPORTANT: Added visual cleanup before completing guide
+                this.hideVisualElements();
+                console.log('handleNavigation: Cleaned up visuals before completing guide');
                 this.completeGuide();
             } else {
+                // IMPORTANT: Added visual cleanup before showing navigation error
+                this.hideVisualElements();
+                console.log('handleNavigation: Cleaned up visuals before showing navigation error');
+                
                 // Show notification 
                 CursorFlowUI.showNotification({
                     message: 'Oops! You\'ve navigated away from the guide path',
@@ -1300,6 +1320,9 @@ export default class CursorFlow {
           // Ensure stop is called even on error during navigation handling
           // Check isPlaying again before stopping to avoid redundant calls if stop was already called
           if (this.state.isPlaying) {
+              // IMPORTANT: Added visual cleanup before stopping due to error
+              this.hideVisualElements();
+              console.log('handleNavigation: Cleaned up visuals before stopping due to error');
               this.stop({ message: 'Error during navigation', type: 'error' });
           }
         } finally {
@@ -1728,14 +1751,17 @@ export default class CursorFlow {
         const rect = element.getBoundingClientRect();
         
         // Element is at least partially visible if:
+        // IMPORTANT: Increased buffer from 100px to 300px to be more lenient with scrolling
+        const BUFFER = 300; // Increased from 100px for more leniency
+        
         const isPartiallyVisible = (
-            rect.top < (window.innerHeight + 100) && // Element top is above bottom edge (with 100px buffer)
-            rect.bottom > -100 &&                    // Element bottom is below top edge (with 100px buffer)
-            rect.left < (window.innerWidth + 100) && // Element left is before right edge (with 100px buffer)
-            rect.right > -100                        // Element right is after left edge (with 100px buffer)
+            rect.top < (window.innerHeight + BUFFER) && // Element top is above bottom edge (with buffer)
+            rect.bottom > -BUFFER &&                    // Element bottom is below top edge (with buffer)
+            rect.left < (window.innerWidth + BUFFER) && // Element left is before right edge (with buffer)
+            rect.right > -BUFFER                        // Element right is after left edge (with buffer)
         );
         
-        this.debugLog(`[VALIDATION-VIEWPORT] ${element.tagName}#${element.id || 'noId'} position: top=${Math.round(rect.top)}, bottom=${Math.round(rect.bottom)}, left=${Math.round(rect.left)}, right=${Math.round(rect.right)}, isPartiallyVisible=${isPartiallyVisible}`);
+        this.debugLog(`[VALIDATION-VIEWPORT] ${element.tagName}#${element.id || 'noId'} position: top=${Math.round(rect.top)}, bottom=${Math.round(rect.bottom)}, left=${Math.round(rect.left)}, right=${Math.round(rect.right)}, isPartiallyVisible=${isPartiallyVisible}, buffer=${BUFFER}px`);
         
         return isPartiallyVisible;
     }

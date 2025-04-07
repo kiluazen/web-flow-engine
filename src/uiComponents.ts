@@ -1049,175 +1049,185 @@ export class CursorFlowUI {
         timestamp: new Date().toISOString()
     });
 
-    // Remove highlight from current parent if it exists
-    if (highlight.parentElement) {
-        highlight.parentElement.removeChild(highlight);
+    // IMPORTANT: First, always clean up any existing observers and handlers
+    // to prevent memory leaks and conflicting updates
+    if ((highlight as any)._scrollResizeHandler) {
+        window.removeEventListener('scroll', (highlight as any)._scrollResizeHandler);
+        window.removeEventListener('resize', (highlight as any)._scrollResizeHandler);
+        (highlight as any)._scrollResizeHandler = null;
+        console.log('[HIGHLIGHT-POSITION] Cleaned up previous scroll/resize handlers');
     }
     
-    // Add the highlight to the document body
-    document.body.appendChild(highlight);
+    if ((highlight as any)._observer) {
+        (highlight as any)._observer.disconnect();
+        (highlight as any)._observer = null;
+        console.log('[HIGHLIGHT-POSITION] Cleaned up previous mutation observer');
+    }
+
+    // IMPORTANT: Always remove highlight from current parent and attach directly to document.body
+    // This avoids issues with nested transforms and positioning contexts
+    if (highlight.parentElement) {
+        highlight.parentElement.removeChild(highlight);
+        console.log('[HIGHLIGHT-POSITION] Removed highlight from previous parent');
+    }
     
-    // Set up highlight style
+    // Add the highlight to the document body - ALWAYS directly to body for consistent positioning
+    document.body.appendChild(highlight);
+    console.log('[HIGHLIGHT-POSITION] Attached highlight directly to document.body');
+    
+    // Ensure highlight has correct base styles
     highlight.style.position = 'absolute';
     highlight.style.pointerEvents = 'none';
+    highlight.style.zIndex = '9995'; // Ensure proper stacking order
+    highlight.style.boxSizing = 'border-box'; // Ensure dimensions include borders
+    highlight.style.transition = 'none'; // Prevent transition during initial positioning
     
     // Store element reference for cleanup
     (highlight as any)._targetElement = element;
     
-    // Function to check if element position has stabilized
-    let lastRect: DOMRect | null = null;
-    const hasPositionChanged = (rect: DOMRect): boolean => {
-        if (!lastRect) return true;
-        return (
-            Math.abs(rect.top - lastRect.top) > 0.5 ||
-            Math.abs(rect.left - lastRect.left) > 0.5 ||
-            Math.abs(rect.width - lastRect.width) > 0.5 ||
-            Math.abs(rect.height - lastRect.height) > 0.5
-        );
-    };
-
-    // Function to update highlight position
+    // Function to update highlight position with comprehensive error handling
     const updateHighlightPosition = () => {
-        // Enhanced Check: Ensure element and highlight are still valid
-        if (!element || !highlight || !element.isConnected || !document.body.contains(highlight)) {
-            console.warn('[HIGHLIGHT-POSITION] Update aborted: Element/Highlight missing or disconnected.', {
-                elementExists: !!element,
-                elementConnected: element?.isConnected,
-                highlightExists: !!highlight,
-                highlightInBody: !!highlight && document.body.contains(highlight)
-            });
-            return; 
-        }
-        
         try {
+            // Enhanced Check: Ensure element and highlight are still valid
+            if (!element || !highlight || !element.isConnected || !document.body.contains(highlight)) {
+                console.warn('[HIGHLIGHT-POSITION] Update aborted: Element/Highlight missing or disconnected.', {
+                    elementExists: !!element,
+                    elementConnected: element?.isConnected,
+                    highlightExists: !!highlight,
+                    highlightInBody: !!highlight && document.body.contains(highlight)
+                });
+                return; 
+            }
+            
+            // Get current element position
             const rect = element.getBoundingClientRect();
             const scrollX = window.scrollX || document.documentElement.scrollLeft;
             const scrollY = window.scrollY || document.documentElement.scrollTop;
             
-            // Log raw rect values
-            console.log('[HIGHLIGHT-POSITION-RAW-RECT]', {
-                top: rect.top, 
-                left: rect.left, 
-                bottom: rect.bottom, 
-                right: rect.right, 
-                width: rect.width, 
-                height: rect.height 
+            // IMPORTANT: Log raw positions for debugging
+            console.log('[HIGHLIGHT-POSITION-RAW] Element position:', {
+                top: Math.round(rect.top), 
+                left: Math.round(rect.left), 
+                width: Math.round(rect.width), 
+                height: Math.round(rect.height),
+                scroll: { x: Math.round(scrollX), y: Math.round(scrollY) },
+                viewport: { width: window.innerWidth, height: window.innerHeight }
             });
             
-            // Position highlight
+            // IMPORTANT: First set transition to none to prevent animation during position updates
+            highlight.style.transition = 'none';
+            
+            // IMPORTANT: Reset any transforms that might interfere
+            highlight.style.transform = 'none';
+            
+            // Position highlight with a slight expansion for visibility (+6px width/height, -3px top/left)
             highlight.style.top = `${rect.top + scrollY - 3}px`;
             highlight.style.left = `${rect.left + scrollX - 3}px`;
             highlight.style.width = `${rect.width + 6}px`;
             highlight.style.height = `${rect.height + 6}px`;
-            highlight.style.transform = 'none';
-            highlight.style.zIndex = '9995';
+            highlight.style.opacity = '1'; // Ensure visibility
             
-            lastRect = rect;
+            // Force reflow before enabling transitions again
+            highlight.offsetHeight; // This line forces a reflow
             
-            // Check if element is in viewport and log
-            const isInViewport = rect.top < (window.innerHeight + 100) && 
-                                 rect.bottom > -100 && 
-                                 rect.left < (window.innerWidth + 100) && 
-                                 rect.right > -100;
+            // Enable smooth transitions for subsequent updates
+            highlight.style.transition = 'top 0.2s, left 0.2s, width 0.2s, height 0.2s';
             
             console.log('[HIGHLIGHT-POSITION] Updated highlight position:', {
-                elementId: element.id || 'noId',
-                elementTag: element.tagName,
-                elementPosition: {
-                    top: Math.round(rect.top),
-                    left: Math.round(rect.left),
-                    bottom: Math.round(rect.bottom),
-                    right: Math.round(rect.right)
-                },
-                scroll: { x: scrollX, y: scrollY },
-                highlightPosition: {
+                element: `${element.tagName}#${element.id || 'noId'}`,
+                highlight: {
                     top: highlight.style.top,
                     left: highlight.style.left,
                     width: highlight.style.width,
                     height: highlight.style.height
                 },
-                viewport: {
-                    width: window.innerWidth,
-                    height: window.innerHeight
-                },
-                inViewport: isInViewport,
-                outOfViewportDetails: !isInViewport ? {
-                    topOffBy: rect.top < 0 ? rect.top : null,
-                    bottomOffBy: rect.bottom > window.innerHeight ? (rect.bottom - window.innerHeight) : null,
-                    leftOffBy: rect.left < 0 ? rect.left : null,
-                    rightOffBy: rect.right > window.innerWidth ? (rect.right - window.innerWidth) : null
-                } : null
+                timestamp: new Date().toISOString()
             });
         } catch (error) {
             console.error('[HIGHLIGHT-POSITION] Error updating highlight position:', error);
         }
     };
-
-    // Initial position update with stability check
-    let stabilityAttempts = 0;
-    const MAX_STABILITY_ATTEMPTS = 10;
-    const checkStability = () => {
-        const rect = element.getBoundingClientRect();
+    
+    // Initial position update - call immediately
+    updateHighlightPosition();
+    
+    // IMPORTANT: Create a dedicated handler for scroll and resize events with debouncing
+    let positionUpdateDebounce: any = null;
+    const scrollResizeHandler = (event: Event) => {
+        // Clear any existing timeout to prevent multiple rapid updates
+        if (positionUpdateDebounce) {
+            clearTimeout(positionUpdateDebounce);
+        }
         
-        if (hasPositionChanged(rect)) {
-            lastRect = rect;
-            stabilityAttempts++;
-            
-            if (stabilityAttempts < MAX_STABILITY_ATTEMPTS) {
-                // Position changed, wait a bit and check again
-                console.log(`[HIGHLIGHT-POSITION] Position unstable, attempt ${stabilityAttempts}/${MAX_STABILITY_ATTEMPTS}`);
-                setTimeout(checkStability, 50);
-            } else {
-                // Max attempts reached, use final position
-                console.log(`[HIGHLIGHT-POSITION] Max stability attempts reached, using current position`);
-                updateHighlightPosition();
-            }
-        } else {
-            // Position has stabilized
-            console.log(`[HIGHLIGHT-POSITION] Position stabilized after ${stabilityAttempts} attempts`);
+        // Use a short timeout for smoother performance during rapid events like scrolling
+        positionUpdateDebounce = setTimeout(() => {
+            console.log(`[HIGHLIGHT-POSITION] ${event.type} event detected, updating position`);
             updateHighlightPosition();
+        }, 10); // Very short delay for responsive updates
+    };
+    
+    // IMPORTANT: Create a more robust mutation observer for DOM changes
+    const observerConfig = { 
+        attributes: true, 
+        childList: true, 
+        subtree: true,
+        characterData: true // Also watch for text changes
+    };
+    
+    const mutationHandler = (mutations: MutationRecord[]) => {
+        // Check if any mutations are relevant to our element
+        const relevantMutation = mutations.some(mutation => {
+            // Either the element itself changed
+            return element.contains(mutation.target) || 
+                   // Or the element's parent structure changed
+                   (mutation.target instanceof Node && mutation.target.contains(element));
+        });
+        
+        if (relevantMutation) {
+            if (positionUpdateDebounce) {
+                clearTimeout(positionUpdateDebounce);
+            }
+            
+            positionUpdateDebounce = setTimeout(() => {
+                console.log('[HIGHLIGHT-POSITION] Relevant DOM mutation detected, updating position');
+                updateHighlightPosition();
+            }, 50); // Slightly longer delay for DOM mutations
         }
     };
-
-    // Start stability checks after a short delay to allow for initial render
-    setTimeout(checkStability, 50);
     
-    // Create handler for scroll and resize events
-    const scrollResizeHandler = () => {
-        console.log('[HIGHLIGHT-POSITION] Scroll/resize detected, updating highlight position');
-        requestAnimationFrame(updateHighlightPosition);
-    };
+    const observer = new MutationObserver(mutationHandler);
     
-    // Create mutation observer for DOM changes
-    const observer = new MutationObserver(() => {
-        console.log('[HIGHLIGHT-POSITION] DOM mutation detected, updating highlight position');
-        requestAnimationFrame(updateHighlightPosition);
-    });
+    // Observe the element itself
+    observer.observe(element, observerConfig);
     
-    // Observe the element and its parent for changes
-    observer.observe(element, {
-        attributes: true,
-        childList: true,
-        subtree: true
-    });
-    
-    if (element.parentElement) {
-        observer.observe(element.parentElement, {
-            attributes: true,
-            childList: true,
-            subtree: true
-        });
+    // Also observe parent elements up to 3 levels for better coverage of structural changes
+    let parent = element.parentElement;
+    let depth = 0;
+    while (parent && depth < 3) {
+        observer.observe(parent, observerConfig);
+        parent = parent.parentElement;
+        depth++;
     }
+    
+    // For completeness, also observe document.body for major DOM changes
+    observer.observe(document.body, { childList: true, subtree: false });
     
     // Store handlers and observer on highlight for cleanup
     (highlight as any)._scrollResizeHandler = scrollResizeHandler;
     (highlight as any)._observer = observer;
     
-    // Add event listeners
+    // Add event listeners with passive flag for better performance
     window.addEventListener('scroll', scrollResizeHandler, { passive: true });
     window.addEventListener('resize', scrollResizeHandler, { passive: true });
     
-    console.log('[HIGHLIGHT-POSITION] Highlight positioning setup completed with stability checks');
+    // Also listen for window orientation changes on mobile
+    window.addEventListener('orientationchange', scrollResizeHandler);
+    
+    console.log('[HIGHLIGHT-POSITION] Setup complete: Added event listeners and observers');
+    
+    // Double-check position after a short delay to catch any post-rendering changes
+    setTimeout(updateHighlightPosition, 100);
+    setTimeout(updateHighlightPosition, 500); // And again after longer delay
   }
 
   // Add a new method to properly clean up all UI components
