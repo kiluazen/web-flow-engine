@@ -282,7 +282,7 @@ export class CursorFlowUI {
     }
 
     const dropdown = document.createElement('div');
-    dropdown.id = 'hyphen-guides-dropdown'; // Add ID for easier tracking
+    dropdown.id = 'hyphen-guides-dropdown';
     dropdown.className = 'hyphen-dropdown';
     
     // Modern styling for dropdown
@@ -302,19 +302,102 @@ export class CursorFlowUI {
         flex-direction: column;
     `;
     
-    // Add header with modern design
+    // Create header container with search functionality
+    const headerContainer = document.createElement('div');
+    headerContainer.style.cssText = `
+        border-bottom: 1px solid #f0f0f0;
+    `;
+
+    // Create main header with title and search icon
     const header = document.createElement('div');
     header.style.cssText = `
         padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    `;
+
+    const title = document.createElement('span');
+    title.style.cssText = `
         font-weight: 600;
         font-size: 16px;
         color: #1a1a1a;
+    `;
+    title.textContent = 'What can I show you?';
+
+    const searchIcon = document.createElement('div');
+    searchIcon.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+    `;
+    searchIcon.style.cssText = `
+        cursor: pointer;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+    `;
+    searchIcon.addEventListener('mouseover', () => searchIcon.style.opacity = '1');
+    searchIcon.addEventListener('mouseout', () => searchIcon.style.opacity = '0.7');
+
+    header.appendChild(title);
+    header.appendChild(searchIcon);
+    headerContainer.appendChild(header);
+
+    // Create search bar (hidden initially)
+    const searchContainer = document.createElement('div');
+    searchContainer.style.cssText = `
+        padding: 20px;
+        display: none;
+        align-items: center;
+        gap: 12px;
         border-bottom: 1px solid #f0f0f0;
     `;
-    header.textContent = 'What can I show you?';
-    dropdown.appendChild(header);
+
+    const backButton = document.createElement('div');
+    backButton.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+        </svg>
+    `;
+    backButton.style.cssText = `
+        cursor: pointer;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+    `;
+    backButton.addEventListener('mouseover', () => backButton.style.opacity = '1');
+    backButton.addEventListener('mouseout', () => backButton.style.opacity = '0.7');
+
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search guides...';
+    searchInput.style.cssText = `
+        flex: 1;
+        padding: 8px 12px;
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        font-size: 14px;
+        outline: none;
+        transition: border-width 0.2s, border-color 0.2s;
+        caret-color: #666;
+    `;
+    searchInput.addEventListener('focus', () => {
+        searchInput.style.borderWidth = '1.5px';
+        searchInput.style.borderColor = '#666';
+    });
+    searchInput.addEventListener('blur', () => {
+        searchInput.style.borderWidth = '1px';
+        searchInput.style.borderColor = '#e0e0e0';
+    });
+
+    searchContainer.appendChild(backButton);
+    searchContainer.appendChild(searchInput);
+    headerContainer.appendChild(searchContainer);
+
+    dropdown.appendChild(headerContainer);
     
-    // Create scrollable content area
+    // Create content area
     const content = document.createElement('div');
     content.style.cssText = `
         max-height: 320px;
@@ -322,65 +405,101 @@ export class CursorFlowUI {
         padding: 8px 0;
         flex: 1;
     `;
-    
-    if (!guides || guides.length === 0) {
-        const noGuides = document.createElement('div');
-        noGuides.style.cssText = `
-            padding: 16px 20px;
-            color: #666;
-            font-style: italic;
-            font-size: 14px;
-        `;
-        noGuides.textContent = 'No guides available';
-        content.appendChild(noGuides);
-    } else {
-        guides.forEach(guide => {
-            const item = document.createElement('div');
-            item.className = 'hyphen-dropdown-item';
-            
-            // Modern list item styling
-            item.style.cssText = `
-                padding: 12px 20px;
-                cursor: pointer;
-                transition: all 0.2s ease;
-                color: #1a1a1a;
-                font-size: 14px;
-                display: flex;
-                align-items: center;
-                gap: 12px;
-            `;
-            
-            // Add guide icon
-            item.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 5l7 7-7 7"></path>
-                    <path d="M5 12h14"></path>
-                </svg>
-                <span>${guide.name}</span>
-            `;
-            
-            item.addEventListener('mouseover', () => {
-                item.style.backgroundColor = '#f8f8f8';
-            });
-            
-            item.addEventListener('mouseout', () => {
-                item.style.backgroundColor = '';
-            });
-            
-            item.addEventListener('click', (event) => {
-                event.stopPropagation();
-                onSelect(guide);
-                if (document.body.contains(dropdown)) {
-                    document.body.removeChild(dropdown);
-                }
-            });
-            
-            content.appendChild(item);
-        });
-    }
-    
-    dropdown.appendChild(content);
 
+    const renderGuides = (guidesToRender: any[]) => {
+        content.innerHTML = '';
+        if (!guidesToRender || guidesToRender.length === 0) {
+            const noGuides = document.createElement('div');
+            noGuides.style.cssText = `
+                padding: 16px 20px;
+                color: #666;
+                font-style: italic;
+                font-size: 14px;
+            `;
+            noGuides.textContent = 'No guides available';
+            content.appendChild(noGuides);
+        } else {
+            guidesToRender.forEach(guide => {
+                const item = document.createElement('div');
+                item.className = 'hyphen-dropdown-item';
+                item.style.cssText = `
+                    padding: 12px 20px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    color: #1a1a1a;
+                    font-size: 14px;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                `;
+                
+                item.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 5l7 7-7 7"></path>
+                        <path d="M5 12h14"></path>
+                    </svg>
+                    <span>${guide.name}</span>
+                `;
+                
+                item.addEventListener('mouseover', () => {
+                    item.style.backgroundColor = '#f8f8f8';
+                });
+                
+                item.addEventListener('mouseout', () => {
+                    item.style.backgroundColor = '';
+                });
+                
+                item.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    onSelect(guide);
+                    if (document.body.contains(dropdown)) {
+                        document.body.removeChild(dropdown);
+                    }
+                });
+                
+                content.appendChild(item);
+            });
+        }
+    };
+
+    // Initial render
+    renderGuides(guides);
+
+    // Add search functionality
+    let isSearchMode = false;
+    searchIcon.addEventListener('click', () => {
+        isSearchMode = true;
+        header.style.display = 'none';
+        searchContainer.style.display = 'flex';
+        searchInput.focus();
+    });
+
+    backButton.addEventListener('click', () => {
+        isSearchMode = false;
+        header.style.display = 'flex';
+        searchContainer.style.display = 'none';
+        searchInput.value = '';
+        renderGuides(guides);
+    });
+
+    // Add search input handler with debounce
+    let debounceTimeout: number | null = null;
+    searchInput.addEventListener('input', (e) => {
+        if (debounceTimeout) {
+            clearTimeout(debounceTimeout);
+        }
+        debounceTimeout = window.setTimeout(() => {
+            const query = (e.target as HTMLInputElement).value.toLowerCase();
+            const filteredGuides = guides.filter(guide => 
+                guide.name.toLowerCase().includes(query) || 
+                (guide.description && guide.description.toLowerCase().includes(query))
+            );
+            renderGuides(filteredGuides);
+        }, 300);
+    });
+
+    dropdown.appendChild(content);
+    
     // Add footer with "powered by" and logo
     console.log('[FOOTER-DEBUG] Creating footer with hyphenbox SVG');
     const footer = document.createElement('div');
@@ -453,7 +572,7 @@ export class CursorFlowUI {
         easing: 'ease-out'
     });
     
-    // Existing handleOutsideClick logic
+    // Handle outside clicks
     const handleOutsideClick = (event: MouseEvent) => {
         if (!dropdown.contains(event.target as Node) && 
             event.target !== guideButton) {
@@ -462,7 +581,6 @@ export class CursorFlowUI {
         }
     };
     
-    // Delay adding the document listener to avoid immediate triggering
     setTimeout(() => {
         document.addEventListener('click', handleOutsideClick);
     }, 0);

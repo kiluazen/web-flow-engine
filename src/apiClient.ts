@@ -35,12 +35,17 @@ export class ApiClient {
   /**
    * Get list of available flows
    */
-  async getRecordings(): Promise<any> {
+  async getRecordings(searchQuery?: string): Promise<any> {
     try {
+      const params: any = { organizationId: this.organizationId };
+      if (searchQuery) {
+        params.searchQuery = searchQuery;
+      }
+      
       const response = await this.client.get('/api/recordings', {
-        params: { organizationId: this.organizationId }
+        params
       });
-      return response.data.flows; // API now returns 'flows' instead of 'recordings'
+      return response.data.flows;
     } catch (error) {
       console.error('Failed to fetch flows list:', error);
       throw error;
