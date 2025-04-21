@@ -99,4 +99,32 @@ export class ApiClient {
       return false;
     }
   }
+
+  /**
+   * Perform semantic search for flows
+   * @param query - The user's natural language query
+   * @returns - The potential match { id: string, name: string } or null
+   */
+  async semanticSearch(query: string): Promise<{ id: string, name: string } | null> {
+    try {
+      console.log(`[API Client] Performing semantic search for query: "${query}"`);
+      const response = await this.client.post('/api/flows/semantic-search', {
+        organizationId: this.organizationId,
+        query: query
+      });
+
+      // The endpoint returns { match: { id, name } | null }
+      console.log('[API Client] Semantic search response:', response.data);
+      return response.data.match; 
+    } catch (error) {
+      console.error('Failed semantic search:', error);
+      // Check if the error is specific, e.g., function not found
+      if (axios.isAxiosError(error) && error.response?.status === 501) {
+        console.error("Semantic search functionality might not be configured on the backend.");
+        // Optionally re-throw a more specific error or return a specific indicator
+      }
+      // For other errors, return null to indicate no match found due to error
+      return null; 
+    }
+  }
 }

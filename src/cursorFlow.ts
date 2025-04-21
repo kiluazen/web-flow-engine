@@ -5,6 +5,7 @@ import { CursorFlowOptions, CursorFlowState } from './types';
 import { ElementUtils } from './elementUtils';
 import { RobustElementFinder } from './robustElementFinder';
 import { SelectiveDomAnalyzer } from './selectiveDomAnalyzer';
+import { CopilotModal } from './copilotModal';
 
 
 // Add type definition for notification options
@@ -138,6 +139,14 @@ export default class CursorFlow {
         this.ensureStartButtonExists();
         this.updateButtonState(); // Reflect restored state
         
+        // *** Initialize CopilotModal ***
+        CopilotModal.init(
+          this.apiClient, 
+          (guideId) => this.startGuideAfterSearch(guideId), // Callback for when search finds a guide
+          // () => this.showGuidesDropdown(), // Callback for 'View All Guides' button
+          this.options.theme || {}
+        );
+        
         // Add a window event listener to flush state on page unload
         window.addEventListener('beforeunload', () => {
           if (this.state.isPlaying) {
@@ -229,18 +238,20 @@ export default class CursorFlow {
     
     // Method to handle the button click, bound in constructor or ensureStartButtonExists
     private handleToggleClick = () => {
-        this.toggleGuideState();
+        // If guide is playing, stop it
+        if (this.state.isPlaying) {
+            this.stop();
+        } else {
+            // If guide is not playing, show the SEARCH MODAL instead of the dropdown
+            CopilotModal.showSearchModal();
+        }
     }
     // --- End Button Creation/Finding ---
     
     private toggleGuideState() {
-      if (this.state.isPlaying) {
-        // If guide is playing, stop it
-        this.stop();
-      } else {
-        // If guide is not playing, show dropdown (start process)
-        this.showGuidesDropdown(); 
-      }
+      // This method is now effectively replaced by handleToggleClick's logic
+      // Keeping it just in case, but it directly calls the new logic.
+      this.handleToggleClick(); 
     }
   
     private updateButtonState() {
@@ -291,7 +302,7 @@ export default class CursorFlow {
         console.log('Attempting to start guide selection process...');
       }
        // This is now handled by the dropdown selection flow
-       this.showGuidesDropdown();
+       this.showGuidesDropdown(); // OR CopilotModal.showSearchModal() if default is search
     }
   
     private showGuidesDropdown() {
@@ -508,6 +519,11 @@ export default class CursorFlow {
         }
         
         // If URL check passed or wasn't needed, start the actual guide
+        // Hide thinking indicator just before starting the guide visuals
+        if (this.thinkingIndicator) {
+           CursorFlowUI.hideThinkingIndicator(this.thinkingIndicator);
+           this.thinkingIndicator = null;
+        }
         await this.startGuide(guideId, token);
       } catch (error) {
         console.error('Failed to retrieve guide data:', error);
@@ -1827,5 +1843,26 @@ export default class CursorFlow {
     // Generate a unique token for operation tracking
     private generateToken(): string {
       return Date.now().toString() + Math.random().toString(36).substring(2);
+    }
+
+    // *** NEW Method to handle starting guide after successful search ***
+    private startGuideAfterSearch(guideId: string) {
+      this.debugLog(`Starting guide ${guideId} after successful semantic search.`);
+      
+      // IMPORTANT: Generate a new operation token
+      this.operationToken = this.generateToken();
+      const currentToken = this.operationToken;
+      
+      // Set playing state via the setter
+      this.setIsPlaying(true);
+      
+      // Show thinking indicator (optional, might be handled by SearchUI already)
+      // We'll reuse the existing indicator logic if the start button is visible
+      if (this.startButton && !this.thinkingIndicator) { 
+        this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton);
+      }
+      
+      // Call retrieveGuideData with the ID and token
+      this.retrieveGuideData(guideId, currentToken);
     }
 }
