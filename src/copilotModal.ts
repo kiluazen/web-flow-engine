@@ -630,7 +630,7 @@ export class CopilotModal {
 
         // Create Anchor Tag for the link
         const logoLink = document.createElement('a');
-        logoLink.href = 'https://hyphenbox.com';
+        logoLink.href = 'https://hyphenbox.com'; // TODO: Should this link be configurable?
         logoLink.target = '_blank';
         logoLink.rel = 'noopener noreferrer';
         logoLink.style.display = 'flex'; // Make link a flex container
@@ -640,31 +640,16 @@ export class CopilotModal {
         const logoContainer = document.createElement('div');
         logoContainer.style.cssText = `display: flex; align-items: center; justify-content: center; height: 18px; width: 55px; position: relative; transform: translateY(1px); cursor: pointer;`; // Added cursor: pointer
         
-        // Use the imported SVG
+        // Footer logo is ALWAYS Hyphenbox logo
+        console.log('[CopilotModal Footer] Using Hyphenbox logo.');
         logoContainer.innerHTML = hyphenboxSvg;
+        this.styleFallbackSvg(logoContainer.querySelector('svg')); // Use helper to style it
 
-        // Style the SVG inside the container
-        const svg = logoContainer.querySelector('svg');
-        if (svg) {
-            svg.style.cssText = `
-                width: 100%;
-                height: 100%;
-                opacity: 0.7;
-                display: block;
-                transition: opacity 0.2s ease;
-            `;
-            svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-            svg.setAttribute('viewBox', '0 0 3163 849');
-
-            // Add hover effect to SVG via link
-            logoLink.addEventListener('mouseover', () => { svg.style.opacity = '1'; });
-            logoLink.addEventListener('mouseout', () => { svg.style.opacity = '0.7'; });
-        } else {
-             console.warn('[Hyphen CopilotModal] SVG element not found in container for footer logo.');
-             // Fallback text if SVG fails to load/render
-             logoContainer.textContent = 'HyphenBox';
-             logoContainer.style.fontWeight = 'bold';
-             logoContainer.style.opacity = '0.7';
+        // Add hover effect to SVG via link
+        const svgElement = logoContainer.querySelector('svg');
+        if(svgElement) {
+            logoLink.addEventListener('mouseover', () => { svgElement.style.opacity = '1'; });
+            logoLink.addEventListener('mouseout', () => { svgElement.style.opacity = '0.7'; });
         }
 
         // Append logo container to the link
@@ -675,5 +660,22 @@ export class CopilotModal {
         footer.appendChild(logoLink);
 
         return footer;
+    }
+
+    // Helper to style the fallback SVG consistently - Keep this for styling hyphenboxSvg
+    private static styleFallbackSvg(svg: SVGElement | null): void {
+        if (svg) {
+            svg.style.cssText = `
+                width: 100%;
+                height: 100%;
+                opacity: 0.7;
+                display: block;
+                transition: opacity 0.2s ease;
+            `;
+            svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+            svg.setAttribute('viewBox', '0 0 3163 849');
+        } else {
+             console.warn('[Hyphen CopilotModal] Fallback SVG element not found in container.');
+        }
     }
 } 

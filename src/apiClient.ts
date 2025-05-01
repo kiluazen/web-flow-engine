@@ -127,4 +127,30 @@ export class ApiClient {
       return null; 
     }
   }
+
+  /**
+   * Fetch organization theme settings
+   * @returns - The theme object { brand_color, cursor_company_label, logo_url } or null
+   */
+  async getOrganizationTheme(): Promise<{ brand_color: string, cursor_company_label: string | null, logo_url: string | null } | null> {
+    try {
+      console.log(`[API Client] Fetching theme for organization: ${this.organizationId}`);
+      const response = await this.client.get(`/api/organizations/${this.organizationId}/theme`);
+      
+      // The endpoint returns { theme: { ... } } or an error
+      console.log('[API Client] Organization theme response:', response.data);
+      return response.data.theme;
+    } catch (error) {
+      console.error('Failed to fetch organization theme:', error);
+      // Check for 404 explicitly
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        console.warn(`[API Client] Theme not found for organization ${this.organizationId}.`);
+      } else {
+        // Log other errors
+        console.error('Error fetching theme details:', error);
+      }
+      // Return null if theme is not found or any other error occurs
+      return null;
+    }
+  }
 }

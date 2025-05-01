@@ -118,6 +118,22 @@ export default class CursorFlow {
           }
         }
         
+        // Fetch theme data BEFORE creating UI elements
+        this.debugLog('Fetching organization theme...');
+        try {
+          const fetchedTheme = await this.apiClient.getOrganizationTheme();
+          if (fetchedTheme) {
+            this.options.theme = { ...this.options.theme, ...fetchedTheme }; // Merge fetched theme into existing
+            this.debugLog('Successfully fetched and merged theme:', this.options.theme);
+          } else {
+            this.debugLog('Theme fetch returned null or failed. Using default/existing theme options.');
+            // Keep existing this.options.theme (which might be {} or from constructor)
+          }
+        } catch (themeError) {
+          console.error('Error fetching organization theme during init:', themeError);
+          // Continue initialization with default/existing theme
+        }
+        
         // Check for a guide that required redirect (BEFORE creating button)
         try {
           redirectGuideId = localStorage.getItem('hyphen_redirect_guide_id');
@@ -168,7 +184,7 @@ export default class CursorFlow {
             
             // Show thinking indicator
             if (this.startButton) {
-              this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton);
+              this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton, this.options.theme || {});
             }
             
             // Start the guide automatically
@@ -227,11 +243,12 @@ export default class CursorFlow {
       }
       
       // If not found, create it
-      console.log('[CURSOR-FLOW-DEBUG] Creating new start button.');
+      console.log('[CURSOR-FLOW-DEBUG] Creating new start button with theme:', this.options.theme);
       this.startButton = CursorFlowUI.createStartButton(
           this.options.buttonText || 'Guides',
           this.options.theme?.buttonColor || '#007bff',
-          this.handleToggleClick // Use a bound method reference
+          this.handleToggleClick,
+          this.options.theme || {}
       );
       document.body.appendChild(this.startButton);
     }
@@ -352,12 +369,13 @@ export default class CursorFlow {
               
               // Show thinking indicator
               if (this.startButton) {
-                this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton);
+                this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton, this.options.theme || {});
               }
               
               // Start loading the guide, passing the current token
               this.retrieveGuideData(guideData.id, currentToken);
-            }
+            },
+            this.options.theme || {}
           );
           // Mark dropdown as open
           this.isDropdownOpen = true;
@@ -1856,10 +1874,9 @@ export default class CursorFlow {
       // Set playing state via the setter
       this.setIsPlaying(true);
       
-      // Show thinking indicator (optional, might be handled by SearchUI already)
-      // We'll reuse the existing indicator logic if the start button is visible
+      // Show thinking indicator
       if (this.startButton && !this.thinkingIndicator) { 
-        this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton);
+        this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton, this.options.theme || {});
       }
       
       // Call retrieveGuideData with the ID and token

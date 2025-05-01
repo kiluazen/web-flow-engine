@@ -2,7 +2,6 @@ import { ElementUtils } from './elementUtils';
 // import arrowheadSvg from '../assets/arrowhead.svg';
 import crazeArrow from '../assets/arrowhead.svg';
 import hyphenboxSvg from '../assets/hyphenbox.svg';
-import crazehqSvg from '../assets/crazehq.svg';
 
 console.log('[SVG-DEBUG] Loaded hyphenbox SVG:', hyphenboxSvg.substring(0, 100) + '...');
 
@@ -11,11 +10,10 @@ interface EnhancedHTMLElement extends HTMLElement {
 }
 
 export interface ThemeOptions {
-  cursorColor?: string;
-  highlightColor?: string;
-  highlightBorderColor?: string;
   buttonColor?: string;
-  companyName?: string;
+  brand_color?: string;
+  cursor_company_label?: string | null;
+  logo_url?: string | null;
 }
 
 export interface NotificationOptions {
@@ -46,33 +44,55 @@ export class CursorFlowUI {
   private static cursorScrollHandler: EventListener | null = null;
   private static highlightScrollHandler: EventListener | null = null;
 
-  static createStartButton(text: string, color: string, onClick: () => void): HTMLElement {
+  static createStartButton(text: string, color: string, onClick: () => void, theme: ThemeOptions = {}): HTMLElement {
     console.log('[BUTTON-DEBUG] Creating start button with text:', text);
     const button = document.createElement('button');
     button.className = 'hyphen-start-button';
     
-    // Create modern layout with cursor icon using the crazehq SVG
-    console.log('[BUTTON-DEBUG] Using crazehq SVG:', crazehqSvg.substring(0, 50) + '...');
+    const iconContainer = document.createElement('div');
+    iconContainer.className = 'hyphen-icon';
+    iconContainer.style.display = 'flex';
+    iconContainer.style.alignItems = 'center';
+    iconContainer.style.width = '24px'; // Set fixed size for consistency
+    iconContainer.style.height = '24px';
+    iconContainer.style.minWidth = '24px';
+
+    // Use customer logo if available, otherwise no icon
+    if (theme.logo_url) {
+        console.log('[BUTTON-DEBUG] Using customer logo URL for button icon:', theme.logo_url);
+        const logoImg = document.createElement('img');
+        logoImg.src = theme.logo_url;
+        logoImg.alt = theme.cursor_company_label || 'Logo'; // Use company label or default alt
+        logoImg.style.cssText = `
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        `;
+        logoImg.addEventListener('error', () => {
+             console.warn('[BUTTON-DEBUG] Failed to load customer logo for button icon:', theme.logo_url);
+             iconContainer.innerHTML = ''; // Clear icon on error
+        });
+        iconContainer.appendChild(logoImg);
+    } else {
+        console.log('[BUTTON-DEBUG] No customer logo URL provided. Button will have no icon.');
+        // iconContainer remains empty
+    }
+    
+    // Create button content structure
     button.innerHTML = `
         <div class="hyphen-button-content" style="display: flex; align-items: center; gap: 8px;">
-            <div class="hyphen-icon" style="display: flex; align-items: center;">
-                ${crazehqSvg}
-            </div>
+            ${iconContainer.outerHTML} 
             <span class="hyphen-text" style="white-space: nowrap;">${text}</span>
         </div>
     `;
     
-    // Adjust the SVG size in the button
-    const svg = button.querySelector('svg');
-    if (svg) {
-        console.log('[BUTTON-DEBUG] Adjusting SVG size');
-        svg.style.width = '24px';
-        svg.style.height = '24px';
-        svg.style.minWidth = '24px';
-        svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-        svg.setAttribute('viewBox', '0 0 120 120');
+    // Find the inserted icon container to potentially adjust later if needed
+    const finalIconContainer = button.querySelector('.hyphen-icon');
+    // Note: Adjustments to SVG size are removed as we now use <img> or nothing.
+    if (finalIconContainer && finalIconContainer.hasChildNodes()) {
+        // Potentially add styles to the container if needed
     } else {
-        console.warn('[BUTTON-DEBUG] SVG element not found in button');
+        console.warn('[BUTTON-DEBUG] Icon container is empty or not found after setting innerHTML');
     }
     
     // Modern styling with adjusted padding for icon
@@ -269,12 +289,12 @@ export class CursorFlowUI {
     return hex;
   }
 
-  static createGuidesButton(text: string, color: string, onClick: () => void): HTMLElement {
-    // For simplicity, reuse the createStartButton method
-    return this.createStartButton(text, color, onClick);
+  static createGuidesButton(text: string, color: string, onClick: () => void, theme: ThemeOptions = {}): HTMLElement {
+    // For simplicity, reuse the createStartButton method, passing the theme
+    return this.createStartButton(text, color, onClick, theme);
   }
 
-  static showGuidesDropdown(guides: any[], guideButton: HTMLElement, onSelect: (guideData: any) => void): HTMLElement {
+  static showGuidesDropdown(guides: any[], guideButton: HTMLElement, onSelect: (guideData: any) => void, theme: ThemeOptions = {}): HTMLElement {
     // Remove any existing dropdown
     const existingDropdown = document.getElementById('hyphen-guides-dropdown');
     if (existingDropdown) {
@@ -366,8 +386,6 @@ export class CursorFlowUI {
         opacity: 0.7;
         transition: opacity 0.2s;
     `;
-    backButton.addEventListener('mouseover', () => backButton.style.opacity = '1');
-    backButton.addEventListener('mouseout', () => backButton.style.opacity = '0.7');
 
     const searchInput = document.createElement('input');
     searchInput.type = 'text';
@@ -501,7 +519,7 @@ export class CursorFlowUI {
     dropdown.appendChild(content);
     
     // Add footer with "powered by" and logo
-    console.log('[FOOTER-DEBUG] Creating footer with hyphenbox SVG');
+    console.log('[FOOTER-DEBUG] Creating footer with Hyphenbox logo.');
     const footer = document.createElement('div');
     footer.style.cssText = `
         padding: 12px 20px;
@@ -516,7 +534,6 @@ export class CursorFlowUI {
         line-height: 1;
     `;
     
-    // First create the elements separately
     const poweredByText = document.createElement('span');
     poweredByText.textContent = 'powered by';
     poweredByText.style.cssText = `
@@ -532,34 +549,35 @@ export class CursorFlowUI {
         align-items: center;
         justify-content: center;
         height: 18px;
-        width: 55px;
+        width: 55px; // Maintain width for layout consistency
         position: relative;
         transform: translateY(1px);
     `;
     
-    // Set the SVG directly
+    // Always use imported hyphenboxSvg for the footer
     logoContainer.innerHTML = hyphenboxSvg;
-    
-    // Add elements to footer
-    footer.appendChild(poweredByText);
-    footer.appendChild(logoContainer);
-    
-    // Adjust the SVG
     const svg = logoContainer.querySelector('svg');
     if (svg) {
-        console.log('[FOOTER-DEBUG] Adjusting SVG properties');
+        console.log('[FOOTER-DEBUG] Adjusting Hyphenbox SVG properties');
         svg.style.cssText = `
             width: 100%;
             height: 100%;
             opacity: 0.7;
             display: block;
+            transition: opacity 0.2s ease; /* Add hover effect */
         `;
         svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
         svg.setAttribute('viewBox', '0 0 3163 849');
+        // Add hover effect directly to SVG
+        svg.addEventListener('mouseover', () => { svg.style.opacity = '1'; });
+        svg.addEventListener('mouseout', () => { svg.style.opacity = '0.7'; });
     } else {
-        console.warn('[FOOTER-DEBUG] SVG element not found in container');
+        console.warn('[FOOTER-DEBUG] Hyphenbox SVG element not found in container.');
     }
-
+    
+    footer.appendChild(poweredByText);
+    footer.appendChild(logoContainer);
+    
     dropdown.appendChild(footer);
     document.body.appendChild(dropdown);
 
@@ -588,9 +606,12 @@ export class CursorFlowUI {
     return dropdown;
   }
 
-  static createCursor(theme: ThemeOptions): HTMLElement {
+  static createCursor(theme: ThemeOptions, isThinking: boolean = false): HTMLElement {
     const cursorWrapper = document.createElement('div');
     cursorWrapper.className = 'hyphen-cursor-container';
+    if (isThinking) {
+        cursorWrapper.classList.add('hyphen-thinking');
+    }
     cursorWrapper.style.cssText = `
         position: absolute;
         display: inline-flex;
@@ -603,7 +624,7 @@ export class CursorFlowUI {
     // Create the cursor element
     const cursor = document.createElement('div');
     cursor.className = 'hyphen-cursor';
-    cursor.innerHTML = crazeArrow;
+    cursor.innerHTML = crazeArrow; // Use the default arrow SVG
     cursor.style.cssText = `
         position: relative;
         pointer-events: none;
@@ -615,11 +636,12 @@ export class CursorFlowUI {
     // Create the company label
     const companyLabel = document.createElement('div');
     companyLabel.className = 'hyphen-company-label';
-    companyLabel.textContent = theme.companyName || 'Craze';
-    const cursorColor = theme.cursorColor || '#FF6B00';
+    companyLabel.textContent = isThinking ? 'Thinking...' : (theme.cursor_company_label || '');
+    
+    // Base styles for label - apply background/color later if theme exists
     companyLabel.style.cssText = `
-        background-color: ${cursorColor};
-        color: white;
+        background-color: transparent;
+        color: transparent; /* Hide text initially */
         padding: 4px 8px;
         border-radius: 6px;
         font-size: 12px;
@@ -629,16 +651,32 @@ export class CursorFlowUI {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         transform: translateY(2px);
+        transition: background-color 0.2s, color 0.2s; /* Add transition */
     `;
 
-    // Apply theme color to cursor if provided
-    if (theme?.cursorColor) {
+    // Apply theme color IF brand_color exists
+    if (theme.brand_color) {
+        const brandColor = theme.brand_color;
+        // Apply background to label only if text exists
+        if (companyLabel.textContent) {
+          companyLabel.style.backgroundColor = brandColor;
+          companyLabel.style.color = 'white'; // Make text visible
+        }
+
+        // Apply color to SVG paths
         const paths = cursor.querySelectorAll('path');
         paths.forEach(path => {
-            if (path.getAttribute('fill') === '#FF6B00') {
-                path.setAttribute('fill', cursorColor);
+            // Assuming the default SVG uses #FF6B00, replace it with the theme color
+            if (path.getAttribute('fill')?.toUpperCase() === '#FF6B00') { 
+                path.setAttribute('fill', brandColor);
             }
         });
+    } else {
+        // No brand color - ensure label remains transparent/hidden if no text
+        if (!companyLabel.textContent) {
+            companyLabel.style.display = 'none'; // Hide label entirely if no text and no color
+        }
+         // Keep default SVG color if no brand_color
     }
 
     // Add cursor and label to wrapper
@@ -662,10 +700,44 @@ export class CursorFlowUI {
     highlight.style.transform = 'translate(-3px, -3px)';
     highlight.style.pointerEvents = 'none';
     highlight.style.zIndex = '9995';
-    highlight.style.border = `2px solid ${(theme?.highlightBorderColor) || '#FF6B00'}`;
-    highlight.style.backgroundColor = (theme?.highlightColor) || 'rgba(255, 107, 0, 0.1)';
     highlight.style.borderRadius = '3px';
     highlight.style.boxSizing = 'border-box';
+    // Default to no border/background
+    highlight.style.border = 'none'; 
+    highlight.style.backgroundColor = 'transparent'; 
+
+    // Apply styling only if brand_color is provided
+    if (theme.brand_color) {
+        const borderColor = theme.brand_color;
+        let backgroundColor = 'transparent'; // Start with transparent
+        try {
+            // Attempt to convert hex/rgb to rgba with low alpha
+            let r=0, g=0, b=0;
+            if (borderColor.startsWith('#')) {
+                const bigint = parseInt(borderColor.slice(1), 16);
+                r = (bigint >> 16) & 255;
+                g = (bigint >> 8) & 255;
+                b = bigint & 255;
+                backgroundColor = `rgba(${r}, ${g}, ${b}, 0.1)`; // Use 10% opacity
+            } else if (borderColor.startsWith('rgb')) {
+                 const match = borderColor.match(/\d+/g);
+                 if (match && match.length >= 3) {
+                    r = parseInt(match[0]);
+                    g = parseInt(match[1]);
+                    b = parseInt(match[2]);
+                    backgroundColor = `rgba(${r}, ${g}, ${b}, 0.1)`; // Use 10% opacity
+                 }
+            }
+             // Set border and background if derived successfully
+            highlight.style.border = `2px solid ${borderColor}`;
+            highlight.style.backgroundColor = backgroundColor;
+        } catch (e) {
+            console.warn('[Highlight] Could not parse brand_color. Highlight will have no background/border.', e);
+            // Keep border/background as none/transparent if parsing fails
+        }
+    } else {
+        console.warn('[Highlight] No brand_color provided. Highlight will have no background/border.');
+    }
     
     return highlight;
   }
@@ -1625,7 +1697,7 @@ export class CursorFlowUI {
   }
 
   // Add a new method to show thinking indicator
-  static showThinkingIndicator(button: HTMLElement): HTMLElement {
+  static showThinkingIndicator(button: HTMLElement, theme: ThemeOptions): HTMLElement {
     console.log('[THINKING-DEBUG] Showing thinking indicator');
     
     // Remove any existing thinking indicators
@@ -1644,98 +1716,51 @@ export class CursorFlowUI {
       }
     });
     
-    // Create a container for the thinking indicator
+    // Create a container for positioning the thinking cursor
     const container = document.createElement('div');
-    container.className = 'hyphen-thinking-indicator';
+    container.className = 'hyphen-thinking-indicator-positioner';
     container.style.cssText = `
       position: fixed;
       z-index: 9999;
       pointer-events: none;
     `;
     
-    // Create a cursor element
-    const cursor = this.createCursor({});
-    cursor.style.cssText = `
-      display: block;
-      position: absolute;
-      bottom: 5px;
-      left: 5px;
-      animation: hyphen-pulse 1.5s infinite;
-    `;
+    // Create a cursor element configured for thinking state
+    const thinkingCursor = this.createCursor(theme, true);
+    // Apply pulsing animation via CSS targeting .hyphen-thinking class
+    thinkingCursor.style.position = 'relative';
+    thinkingCursor.style.bottom = 'auto';
+    thinkingCursor.style.left = 'auto';
     
-    // Create text bubble
-    const bubble = document.createElement('div');
-    bubble.style.cssText = `
-      position: absolute;
-      background: #ffffff;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 14px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      color: #333;
-      bottom: 10px;
-      left: 45px;
-      white-space: nowrap;
-    `;
+    // Add animation styles if not already present
+    const styleId = 'hyphen-pulse-style';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        @keyframes hyphen-pulse {
+          0% { opacity: 0.6; transform: scale(0.95); }
+          50% { opacity: 1; transform: scale(1); }
+          100% { opacity: 0.6; transform: scale(0.95); }
+        }
+        
+        .hyphen-cursor-container.hyphen-thinking {
+          animation: hyphen-pulse 1.5s infinite;
+        }
+      `;
+      document.head.appendChild(style);
+    }
     
-    // Add loading dots animation to the text
-    bubble.innerHTML = `
-      Thinking<span class="hyphen-loading-dots"><span>.</span><span>.</span><span>.</span></span>
-    `;
-    
-    // Add animation styles
-    const style = document.createElement('style');
-    style.textContent = `
-      @keyframes hyphen-pulse {
-        0% { opacity: 0.6; transform: scale(0.95); }
-        50% { opacity: 1; transform: scale(1); }
-        100% { opacity: 0.6; transform: scale(0.95); }
-      }
-      
-      .hyphen-loading-dots span {
-        animation: hyphen-dots 1.5s infinite;
-        animation-fill-mode: both;
-        opacity: 0;
-      }
-      
-      .hyphen-loading-dots span:nth-child(2) {
-        animation-delay: 0.2s;
-      }
-      
-      .hyphen-loading-dots span:nth-child(3) {
-        animation-delay: 0.4s;
-      }
-      
-      @keyframes hyphen-dots {
-        0% { opacity: 0; }
-        25% { opacity: 1; }
-        50% { opacity: 1; }
-        75% { opacity: 0; }
-      }
-    `;
-    document.head.appendChild(style);
-    
-    // Add elements to container
-    container.appendChild(cursor);
-    container.appendChild(bubble);
+    // Add thinking cursor to the positioner container
+    container.appendChild(thinkingCursor);
     
     // Position the container relative to the button
     const buttonRect = button.getBoundingClientRect();
     container.style.left = `${buttonRect.left - 10}px`;
-    container.style.top = `${buttonRect.top - 70}px`;
+    container.style.top = `${buttonRect.top - (thinkingCursor.offsetHeight || 50) - 10}px`;
     
     // Add to document
     document.body.appendChild(container);
-    
-    // Add entrance animation
-    container.animate([
-      { opacity: 0, transform: 'translateY(10px)' },
-      { opacity: 1, transform: 'translateY(0)' }
-    ], {
-      duration: 300,
-      easing: 'ease-out'
-    });
     
     return container;
   }
