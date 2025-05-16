@@ -1,22 +1,11 @@
-interface InteractionData {
-    element?: {
-        tagName?: string;
-        id?: string | null;
-        textContent?: string;
-        cssSelector?: string;
-        path?: string[]; // Assuming this holds XPath segments or similar
-        attributes?: string | { [key: string]: string }; // Recorded attributes
-        // Add other relevant fields from sample.json if needed
-    };
-    // Include other interaction fields if necessary for context
-    text?: string; // Sometimes text is at the interaction level
-}
+import { SelectiveDomAnalyzer } from './selectiveDomAnalyzer';
+import { ElementData, InteractionData } from './types'; // Corrected import path
 
 export class RobustElementFinder {
 
     private static debugMode = false;
-    private static readonly MAX_RETRIES = 3; // Number of retry attempts
-    private static readonly RETRY_DELAY_MS = 1500; // UPDATED: Increased from 1000ms to 1500ms
+    private static readonly MAX_RETRIES = 1; // Reduced retries as sequential logic is less prone to initial timing issues
+    private static readonly RETRY_DELAY_MS = 500; // Shorter delay is likely sufficient
 
     static setDebugMode(enabled: boolean): void {
         this.debugMode = enabled;
@@ -25,248 +14,271 @@ export class RobustElementFinder {
     }
 
     /**
-     * Tries multiple strategies to find all plausible elements matching the interaction data,
-     * with built-in retries for timing issues.
-     * @param interaction The interaction data recorded.
-     * @returns An array of plausible HTMLElement candidates.
+     * Tries strategies sequentially. For each strategy, finds candidates, 
+     * filters by text, and validates with SelectiveDomAnalyzer.
+     * Returns the first unambiguously validated element.
      */
     static async findCandidates(interaction: InteractionData): Promise<HTMLElement[]> {
-        // ADDED: Unconditional verification logs to confirm function is called
-        console.log(`[RobustFinder-VERIFY] findCandidates CALLED - Current debugMode setting: ${this.debugMode}`);
-        console.log(`[RobustFinder-VERIFY] Interaction data:`, interaction);
+        console.log(`[RobustFinder-VERIFY] findCandidates CALLED (Sequential Text-Gated Approach) - Debug: ${this.debugMode}`);
+        if (this.debugMode) console.log(`[RobustFinder-VERIFY] Interaction data:`, JSON.parse(JSON.stringify(interaction)));
 
         const elementData = interaction.element || {};
         const targetText = interaction.text || elementData.textContent;
 
-        // --- ADDED: Wait for potential modal/portal stability --- 
-        await this.waitForModalStability();
-        // --- End Stability Wait --- 
-
         let attempt = 0;
-
         while (attempt <= this.MAX_RETRIES) {
-            console.log(`[RobustFinder] Attempt ${attempt + 1}/${this.MAX_RETRIES + 1} - Starting search.`);
+            const runId = `Attempt ${attempt + 1}/${this.MAX_RETRIES + 1}`; 
+            console.log(`[RobustFinder][${runId}] Starting search cycle.`);
 
-            // 0. Define Search Contexts and separate them
+            await this.waitForModalStability(); // Wait for UI stability before each attempt cycle
             const allSearchRoots = this.getSearchRoots();
-            const nonDocumentRoots = allSearchRoots.filter(r => r.name !== 'Document');
-            const documentRoot = allSearchRoots.find(r => r.name === 'Document');
-
-            // --- Run strategies strictly on Non-Document roots first ---
-            const modalCandidates = new Map<HTMLElement, string>();
-
-            // --- Strategy 1: Escaped ID ---
-            if (elementData.id) {
-                try {
-                    const escapedIdSelector = `#${CSS.escape(elementData.id)}`;
-                    console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 1 (Modal Context): Trying escaped ID: ${escapedIdSelector}`);
-                    this.findElements(nonDocumentRoots, escapedIdSelector, modalCandidates, 'Escaped ID', false);
-                } catch (e) {
-                    console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 1 Error (ID: ${elementData.id}):`, e);
-                }
-            }
-
-            // --- Strategy 2: Escaped CSS Selector ---
-             if (elementData.cssSelector && elementData.cssSelector !== elementData.id) {
-                 if (!elementData.cssSelector.includes(':contains(')) {
-                    try {
-                        const potentiallyEscapedSelector = this.tryEscapeSelector(elementData.cssSelector);
-                        console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2 (Modal Context): Trying escaped CSS: ${potentiallyEscapedSelector}`);
-                        this.findElements(nonDocumentRoots, potentiallyEscapedSelector, modalCandidates, 'Escaped CSS', false);
-                    } catch (e) {
-                        console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2 Error (CSS: ${elementData.cssSelector}):`, e);
-                    }
-                } else {
-                     console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2 Skipping: Invalid ':contains' in selector: ${elementData.cssSelector}`);
-                }
-            }
-
-             // --- Strategy 3: Attributes ---
             const attributes = this.parseAttributes(elementData.attributes);
+
+            // --- Define Strategies in Priority Order --- 
+            const strategies: { name: string; execute: () => Promise<HTMLElement[]> }[] = [];
+
+            // 1. Escaped ID
+            if (elementData.id && !elementData.id.startsWith('headlessui-')) { 
+                strategies.push({ name: 'Escaped ID', execute: () => this.executeStrategy(runId, 'Escaped ID', allSearchRoots, `#${CSS.escape(elementData.id!)}`, targetText, interaction, true) });
+            }
+            // 2. Escaped CSS Selector
+            if (elementData.cssSelector && elementData.cssSelector !== elementData.id && !elementData.cssSelector.includes(':contains(')) {
+                strategies.push({ name: 'Escaped CSS', execute: () => this.executeStrategy(runId, 'Escaped CSS', allSearchRoots, this.tryEscapeSelector(elementData.cssSelector!), targetText, interaction) });
+            } else if (elementData.cssSelector?.includes(':contains(')) { 
+                console.warn(`[RobustFinder][${runId}] Skipping invalid CSS selector with :contains:`); 
+            }
+            // 3. Attributes (Stable)
             if (attributes) {
-                const attrSelectors = this.buildAttributeSelectors(elementData.tagName, attributes);
-                 console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 3 (Modal Context): Trying Attributes:`, attrSelectors);
-                for (const selector of attrSelectors) {
-                     try {
-                        this.findElements(nonDocumentRoots, selector, modalCandidates, 'Attributes', false);
-                     } catch (e) {
-                        console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 3 Error (Attribute Selector: ${selector}):`, e);
-                     }
-                }
+                this.buildAttributeSelectors(elementData.tagName, attributes)
+                    .filter(attr => attr.type === 'Stable') // Only stable attrs first
+                    .forEach(attr => {
+                        strategies.push({ name: `Attributes-Stable (${attr.selector.split('[')[1].split('=')[0]})`, execute: () => this.executeStrategy(runId, `Attributes-Stable`, allSearchRoots, attr.selector, targetText, interaction) });
+                    });
             }
-
-             // --- Strategy 4: Text Content ---
+            // 4. Text Content (Exact)
             if (targetText) {
-                 const tagToSearch = elementData.tagName || '*';
-                 console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 4 (Modal Context): Trying Tag (${tagToSearch}) + Text: "${targetText}"`);
-                 this.findElements(nonDocumentRoots, tagToSearch, modalCandidates, 'Tag + Text', false, targetText);
+                const tagToSearch = elementData.tagName || '*';
+                const exactTextXPath = `//*[normalize-space(.) = "${targetText.replace(/"/g, '&quot;')}"] | //*[@value = "${targetText.replace(/"/g, '&quot;')}"] | //*[normalize-space(@aria-label) = "${targetText.replace(/"/g, '&quot;')}"]`
+                // Add Tag + Text (Exact) - often faster than XPath
+                strategies.push({ name: 'Tag + Text (Exact)', execute: () => this.executeStrategy(runId, 'Tag + Text (Exact)', allSearchRoots, tagToSearch, targetText, interaction, true) }); 
+                strategies.push({ name: 'Text-based XPath (Exact)', execute: () => this.executeXPathStrategy(runId, 'Text-based XPath (Exact)', allSearchRoots, exactTextXPath, targetText, interaction, true) });
             }
-
-            // --- Strategy 4b: Text-based XPath ---
+            // 5. Attributes (Role)
+            if (attributes) {
+                 this.buildAttributeSelectors(elementData.tagName, attributes)
+                     .filter(attr => attr.type === 'Role')
+                     .forEach(attr => {
+                         strategies.push({ name: `Attributes-Role`, execute: () => this.executeStrategy(runId, `Attributes-Role`, allSearchRoots, attr.selector, targetText, interaction) });
+                     });
+             }
+            // 6. Text Content (Includes)
             if (targetText) {
-                console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 4b (Modal Context): Trying text-based XPath`);
-                const textXPath = `//*[contains(text(), "${targetText}") or contains(., "${targetText}")]`;
-                try {
-                    this.evaluateXPathInRoots(nonDocumentRoots, textXPath, modalCandidates, 'Text-based XPath', false, targetText);
-                } catch (e) {
-                    console.warn(`[RobustFinder] Text XPath error in Modal Context:`, e);
-                }
+                const tagToSearch = elementData.tagName || '*';
+                const includesTextXPath = `//*[contains(normalize-space(.), "${targetText.replace(/"/g, '&quot;')}") or contains(@value, "${targetText.replace(/"/g, '&quot;')}") or contains(normalize-space(@aria-label), "${targetText.replace(/"/g, '&quot;')}")]`
+                strategies.push({ name: 'Tag + Text (Includes)', execute: () => this.executeStrategy(runId, 'Tag + Text (Includes)', allSearchRoots, tagToSearch, targetText, interaction, false) }); 
+                strategies.push({ name: 'Text-based XPath (Includes)', execute: () => this.executeXPathStrategy(runId, 'Text-based XPath (Includes)', allSearchRoots, includesTextXPath, targetText, interaction, false) });
             }
-
-            // --- Prioritize and Return Modal Results (if any) ---
-            if (modalCandidates.size > 0) {
-                const prioritizedCandidates = this.prioritizeCandidates(modalCandidates, 'Non-Document');
-                if (prioritizedCandidates.length > 0) {
-                    console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED in Non-Document context. Found ${prioritizedCandidates.length} prioritized candidate(s).`);
-                    
-                    // NEW: Try to scroll modal candidates into view if needed
-                    const visibleModalCandidates = await this.ensureCandidatesInView(prioritizedCandidates);
-                    
-                    if (visibleModalCandidates.length > 0) {
-                        // Log the visible candidates for debugging
-                        visibleModalCandidates.forEach((element, index) => {
-                            const strategy = modalCandidates.get(element) || 'Unknown';
-                            console.log(`  - Visible Modal Candidate ${index + 1}: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
-                        });
-                        return visibleModalCandidates;
-                    } else {
-                        console.log(`[RobustFinder] Found modal candidates but none were visible or could be scrolled into view. Falling through to document search.`);
-                    }
-                }
-                // If prioritization resulted in an empty list (shouldn't normally happen if size > 0), 
-                // fall through to document search just in case.
-                console.warn("[RobustFinder] Modal candidates existed but prioritization yielded none. Falling through.");
+            // 7. Attributes (Type and Other)
+            if (attributes) {
+                this.buildAttributeSelectors(elementData.tagName, attributes)
+                    .filter(attr => attr.type === 'Type' || attr.type === 'Other')
+                    .forEach(attr => {
+                        strategies.push({ name: `Attributes-${attr.type}`, execute: () => this.executeStrategy(runId, `Attributes-${attr.type}`, allSearchRoots, attr.selector, targetText, interaction) });
+                    });
             }
-
-            // --- Fallback: Run strategies on Document root ONLY if no modal candidates found or prioritized ---
-            console.log(`[RobustFinder] Attempt ${attempt + 1} - No prioritized candidates found in Non-Document contexts. Falling back to Document root.`);
-            const documentCandidates = new Map<HTMLElement, string>();
-
-            if (documentRoot) {
-                const docRootArray = [documentRoot]; // findElements expects an array
-
-                // --- Strategy 1: Escaped ID (Document Fallback) ---
-                if (elementData.id) {
-                    try {
-                        const escapedIdSelector = `#${CSS.escape(elementData.id)}`;
-                        console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 1 (Document Fallback): Trying escaped ID: ${escapedIdSelector}`);
-                        this.findElements(docRootArray, escapedIdSelector, documentCandidates, 'Escaped ID', true);
-                    } catch (e) {
-                        console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 1 Error (Document Fallback - ID: ${elementData.id}):`, e);
-                    }
+            // --- Execute Strategies Sequentially --- 
+            for (const strategy of strategies) {
+                if (this.debugMode) console.log(`\n[RobustFinder][${runId}] ---> Trying Strategy: ${strategy.name}`);
+                const result = await strategy.execute();
+                if (result.length === 1) {
+                    console.log(`[RobustFinder][${runId}] ***** SUCCESS ***** Found unambiguous element via strategy: ${strategy.name}`);
+                    return result; // Found the single best element
+                } else if (result.length > 1) {
+                    console.warn(`[RobustFinder][${runId}] Ambiguity detected for strategy ${strategy.name}. Found ${result.length} valid candidates after deep validation. Returning empty as strategy is inconclusive.`);
+                    // Ambiguous result, potentially log this and continue (or return empty based on desired strictness)
+                    // For now, let's treat ambiguity after deep validation as needing the next strategy level.
+                    // If it becomes a problem, we might return the ambiguous list.
                 }
-
-                // --- Strategy 2: Escaped CSS Selector (Document Fallback) ---
-                if (elementData.cssSelector && elementData.cssSelector !== elementData.id) {
-                    if (!elementData.cssSelector.includes(':contains(')) {
-                        try {
-                            const potentiallyEscapedSelector = this.tryEscapeSelector(elementData.cssSelector);
-                            console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2 (Document Fallback): Trying escaped CSS: ${potentiallyEscapedSelector}`);
-                            this.findElements(docRootArray, potentiallyEscapedSelector, documentCandidates, 'Escaped CSS', true);
-                        } catch (e) {
-                            console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2 Error (Document Fallback - CSS: ${elementData.cssSelector}):`, e);
-                        }
-                    } else {
-                         console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 2 Skipping (Document Fallback): Invalid ':contains' in selector: ${elementData.cssSelector}`);
-                    }
-                }
-
-                // --- Strategy 3: Attributes (Document Fallback) ---
-                if (attributes) { // Reuse parsed attributes
-                    const attrSelectors = this.buildAttributeSelectors(elementData.tagName, attributes);
-                    console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 3 (Document Fallback): Trying Attributes:`, attrSelectors);
-                    for (const selector of attrSelectors) {
-                        try {
-                            this.findElements(docRootArray, selector, documentCandidates, 'Attributes', true);
-                        } catch (e) {
-                            console.warn(`[RobustFinder] Attempt ${attempt + 1} - Strategy 3 Error (Document Fallback - Attribute Selector: ${selector}):`, e);
-                        }
-                    }
-                }
-
-                // --- Strategy 4: Text Content (Document Fallback) ---
-                if (targetText) {
-                    const tagToSearch = elementData.tagName || '*';
-                    console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 4 (Document Fallback): Trying Tag (${tagToSearch}) + Text: "${targetText}"`);
-                    this.findElements(docRootArray, tagToSearch, documentCandidates, 'Tag + Text', true, targetText);
-                }
-
-                 // --- Strategy 4b: Text-based XPath (Document Fallback) ---
-                 if (targetText) {
-                    console.log(`[RobustFinder] Attempt ${attempt + 1} - Strategy 4b (Document Fallback): Trying text-based XPath`);
-                    const textXPath = `//*[contains(text(), "${targetText}") or contains(., "${targetText}")]`;
-                    try {
-                        this.evaluateXPathInRoots(docRootArray, textXPath, documentCandidates, 'Text-based XPath', true, targetText);
-                    } catch (e) {
-                        console.warn(`[RobustFinder] Text XPath error in Document Fallback:`, e);
-                    }
-                 }
+                // If result.length === 0, the strategy failed (no candidates, no text match, or failed deep validation), continue to next.
             }
-
-            // --- NEW: Check if we found candidates but need to scroll them into view ---
-            if (documentCandidates.size > 0) {
-                const prioritizedCandidates = this.prioritizeCandidates(documentCandidates, 'Document Fallback');
-                
-                // NEW: Try to scroll candidate into view if it's not currently visible
-                if (prioritizedCandidates.length > 0) {
-                    const visibleCandidates = await this.ensureCandidatesInView(prioritizedCandidates);
-                    
-                    if (visibleCandidates.length > 0) {
-                        console.log(`[RobustFinder] Attempt ${attempt + 1} SUCCEEDED (Context: Document Fallback). Found ${visibleCandidates.length} visible candidate(s).`);
-                        // Log the visible candidates for debugging
-                        visibleCandidates.forEach((element, index) => {
-                            const strategy = documentCandidates.get(element) || 'Unknown';
-                            console.log(`  - Visible Candidate ${index + 1}: ${element.tagName}${element.id ? '#' + element.id : ''} (Found via: ${strategy})`);
-                        });
-                        return visibleCandidates;
-                    } else {
-                        console.log(`[RobustFinder] Found candidates but none were visible or could be scrolled into view.`);
-                    }
-                } else {
-                    console.warn("[RobustFinder] Document candidates existed but prioritization yielded none.");
-                }
-            }
-
-            // If no candidates found and retries remain, wait and retry
+            // --- Retry Logic --- 
             attempt++;
             if (attempt <= this.MAX_RETRIES) {
-                console.log(`[RobustFinder] Attempt ${attempt} FAILED. No candidates found in any context. Retrying in ${this.RETRY_DELAY_MS}ms...`);
+                console.log(`[RobustFinder][${runId}] FAILED CYCLE. No unambiguous element found. Retrying in ${this.RETRY_DELAY_MS}ms...`);
                 await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_MS));
             } else {
-                 console.log(`[RobustFinder] All ${this.MAX_RETRIES + 1} attempts FAILED. No candidates found.`);
+                console.log(`[RobustFinder] All ${this.MAX_RETRIES + 1} attempts FAILED. No unambiguous element found.`);
             }
         } // End while loop
 
-        return []; // Return empty array if all retries fail
+        return []; // Return empty array if all strategies and retries fail
     }
 
-    // --- ADDED: Helper to prioritize candidates based on strategy --- 
-    private static prioritizeCandidates(candidates: Map<HTMLElement, string>, context: string): HTMLElement[] {
-        const priorityOrder = ['Escaped ID', 'Escaped CSS', 'Attributes', 'Tag + Text', 'Text-based XPath'];
-        
-        for (const priorityStrategy of priorityOrder) {
-            const matchingCandidates = Array.from(candidates.entries())
-                .filter(([_, strategy]) => strategy.includes(priorityStrategy))
-                .map(([element, _]) => element);
-            
-            if (matchingCandidates.length > 0) {
-                console.log(`[RobustFinder-Priority] Prioritizing candidates found via "${priorityStrategy}" in ${context} context.`);
-                return matchingCandidates;
-            }
+    /** Helper to execute a querySelectorAll strategy */
+    private static async executeStrategy(
+        runId: string, 
+        strategyName: string, 
+        roots: { name: string; root: Document | Element }[], 
+        selector: string, 
+        targetText: string | undefined, 
+        interaction: InteractionData, 
+        exactMatch: boolean = false
+    ): Promise<HTMLElement[]> {
+        const candidates: HTMLElement[] = [];
+        for (const { name, root } of roots) {
+            try {
+                const foundElements = root.querySelectorAll(selector);
+                foundElements.forEach(element => {
+                    if (element instanceof HTMLElement) {
+                        candidates.push(element);
+                    }
+                });
+            } catch (e) { /* Ignore selector errors */ }
         }
 
-        // Should not be reached if candidates map is not empty, but return all as fallback.
-        console.warn(`[RobustFinder-Priority] No specific priority strategy matched in ${context}. Returning all candidates.`);
-        return Array.from(candidates.keys()); 
+        if (candidates.length === 0) {
+            if (this.debugMode) console.log(`[RobustFinder][${runId}] ${strategyName}: No initial candidates found using selector '${selector}'.`);
+            return []; // Strategy failed to find any element
+        }
+
+        // Filter by text
+        const uniqueCandidates = Array.from(new Set(candidates)); // Ensure uniqueness
+        const textMatchingCandidates = !targetText ? uniqueCandidates : uniqueCandidates.filter(el => 
+            this.isTextContentMatching(el, targetText, exactMatch)
+        );
+
+        if (textMatchingCandidates.length === 0) {
+            if (this.debugMode) console.log(`[RobustFinder][${runId}] ${strategyName}: Found ${uniqueCandidates.length} initial candidates, but none matched text filter (Exact: ${exactMatch}, Text: "${targetText}").`);
+            return []; // Strategy found elements, but none matched text
+        }
+
+        // Validate remaining candidates deeply
+        if (this.debugMode) console.log(`[RobustFinder][${runId}] ${strategyName}: Found ${textMatchingCandidates.length} text-matching candidate(s). Performing deep validation...`);
+        const validCandidates: HTMLElement[] = [];
+        for (const candidate of textMatchingCandidates) {
+             // Use SelectiveDomAnalyzer for deep validation (visibility, occlusion etc.)
+            // Pass 'strict' validation mode by default.
+            if (SelectiveDomAnalyzer.validateCandidateElement(candidate, interaction)) { 
+                validCandidates.push(candidate);
+            }
+        }
+        
+        if (this.debugMode) console.log(`[RobustFinder][${runId}] ${strategyName}: Deep validation resulted in ${validCandidates.length} valid candidate(s).`);
+        return validCandidates; // Return validated candidates (could be 0, 1, or >1)
     }
 
-    // --- Helper Methods ---
+    /** Helper to execute an XPath strategy */
+    private static async executeXPathStrategy(
+        runId: string, 
+        strategyName: string, 
+        roots: { name: string; root: Document | Element }[], 
+        xpath: string, 
+        targetText: string | undefined, 
+        interaction: InteractionData, 
+        exactMatch: boolean = false
+    ): Promise<HTMLElement[]> {
+        const candidates: HTMLElement[] = [];
+        for (const { name, root } of roots) {
+            try {
+                const result = document.evaluate(xpath, root, null, XPathResult.ORDERED_NODE_ITERATOR_TYPE, null);
+                let node = result.iterateNext();
+                while (node) {
+                    if (node instanceof HTMLElement) {
+                        candidates.push(node);
+                    }
+                    node = result.iterateNext();
+                }
+            } catch (e) { console.warn(`[RobustFinder][${runId}] Error evaluating XPath "${xpath.substring(0,100)}..." in ${name}:`, e); }
+        }
 
-    /**
-     * Defines search areas, prioritizing specific modal content containers,
-     * then overlay roots, before the main document.
-     * Inspired by elementUtils.ts logic.
-     */
+        if (candidates.length === 0) {
+            if (this.debugMode) console.log(`[RobustFinder][${runId}] ${strategyName}: No initial candidates found.`);
+            return [];
+        }
+
+        const uniqueCandidates = Array.from(new Set(candidates));
+        const textMatchingCandidates = !targetText ? uniqueCandidates : uniqueCandidates.filter(el => 
+            this.isTextContentMatching(el, targetText, exactMatch)
+        );
+
+        if (textMatchingCandidates.length === 0) {
+            if (this.debugMode) console.log(`[RobustFinder][${runId}] ${strategyName}: Found ${uniqueCandidates.length} initial candidates, but none matched text filter (Exact: ${exactMatch}, Text: "${targetText}").`);
+            return [];
+        }
+
+        if (this.debugMode) console.log(`[RobustFinder][${runId}] ${strategyName}: Found ${textMatchingCandidates.length} text-matching candidate(s). Performing deep validation...`);
+        const validCandidates: HTMLElement[] = [];
+        for (const candidate of textMatchingCandidates) {
+             if (SelectiveDomAnalyzer.validateCandidateElement(candidate, interaction)) { 
+                validCandidates.push(candidate);
+            }
+        }
+        
+        if (this.debugMode) console.log(`[RobustFinder][${runId}] ${strategyName}: Deep validation resulted in ${validCandidates.length} valid candidate(s).`);
+        return validCandidates;
+    }
+
+    // --- Helper Methods --- 
+    // (Keep: isTextContentMatching, buildAttributeSelectors, getSearchRoots, parseAttributes, tryEscapeSelector, buildXPath, waitForModalStability, ensureCandidatesInView, findScrollableParent) 
+    /** Text content matching with exact/includes option */
+    private static isTextContentMatching(element: HTMLElement, targetText: string, exactMatchRequired: boolean): boolean {
+        if (!targetText || targetText.trim() === '') return true;
+
+        // Normalize the targetText (from interaction data) by lowercasing, trimming, and removing all whitespace
+        // This is because the recorder already does this.
+        const normalizedTargetText = targetText.toLowerCase().trim().replace(/\s+/g, '');
+
+        const elementTextContent = (element.textContent || '').trim().toLowerCase().replace(/\s+/g, '');
+        const elementInnerText = (element.innerText || '').trim().toLowerCase().replace(/\s+/g, '');
+        // Prefer innerText if available and not empty, otherwise fall back to textContent
+        const bestElementText = elementInnerText.length > 0 ? elementInnerText : elementTextContent;
+
+        const valueText = (element as HTMLInputElement).value || '';
+        const normalizedValueText = valueText.trim().toLowerCase().replace(/\s+/g, '');
+
+        const ariaLabel = element.getAttribute('aria-label') || '';
+        const normalizedAriaLabel = ariaLabel.trim().toLowerCase().replace(/\s+/g, '');
+
+        if (this.debugMode) {
+            console.log(`[RobustFinder] Text Matching:
+    - Target (normalized): "${normalizedTargetText}" (Exact: ${exactMatchRequired})
+    - Element Best Text (normalized): "${bestElementText}" (from innerText/textContent)
+    - Element Value (normalized): "${normalizedValueText}"
+    - Element AriaLabel (normalized): "${normalizedAriaLabel}"`);
+        }
+
+        if (exactMatchRequired) {
+            return bestElementText === normalizedTargetText ||
+                   normalizedValueText === normalizedTargetText ||
+                   normalizedAriaLabel === normalizedTargetText;
+        } else {
+            return bestElementText.includes(normalizedTargetText) ||
+                   normalizedValueText.includes(normalizedTargetText) ||
+                   normalizedAriaLabel.includes(normalizedTargetText);
+        }
+    }
+
+    /** Builds attribute selectors WITH TYPE INFO for strategy ordering */
+    private static buildAttributeSelectors(tagName: string | undefined, attributes: { [key: string]: string }): { type: string; selector: string }[] {
+        const selectors: { type: string; selector: string }[] = [];
+        const tagPrefix = tagName ? tagName.toLowerCase() : '';
+        const stableAttrs: { [key: string]: string } = { 
+            'name': 'Stable', 'data-testid': 'Stable', 'data-test': 'Stable', 'href': 'Stable', 'src': 'Stable' 
+        };
+        const otherAttrs: { [key: string]: string } = {
+             'placeholder': 'Other', 'title': 'Other', 'aria-label': 'Other'
+         }; 
+        for (const attr in stableAttrs) {
+            if (attributes[attr]) { selectors.push({ type: stableAttrs[attr], selector: `${tagPrefix}[${attr}="${CSS.escape(attributes[attr])}"]` }); }
+        }
+        for (const attr in otherAttrs) {
+            if (attributes[attr]) { selectors.push({ type: otherAttrs[attr], selector: `${tagPrefix}[${attr}="${CSS.escape(attributes[attr])}"]` }); }
+        }
+        if (attributes['role']) selectors.push({ type: 'Role', selector: `${tagPrefix}[role="${CSS.escape(attributes['role'])}"]` });
+        if (attributes['type']) selectors.push({ type: 'Type', selector: `${tagPrefix}[type="${CSS.escape(attributes['type'])}"]` });
+        return selectors;
+    }
+
     private static getSearchRoots(): { name: string; root: Document | Element }[] {
         const roots: { name: string; root: Document | Element }[] = [];
         let foundSpecificContent = false;
@@ -275,9 +287,7 @@ export class RobustElementFinder {
             // Look specifically for Hyphen portals first
             const portals = document.querySelectorAll('[data-portal="true"]');
             if (portals.length > 0) {
-                portals.forEach((portal, index) => {
-                    roots.push({ name: `Portal ${index + 1}`, root: portal });
-                });
+                portals.forEach((portal, index) => { roots.push({ name: `Portal ${index + 1}`, root: portal }); });
                 foundSpecificContent = true;
                 if (this.debugMode) console.log(`[RobustFinder] Found ${portals.length} data-portal elements.`);
             }
@@ -371,203 +381,27 @@ export class RobustElementFinder {
         return roots;
     }
 
-    /** Executes querySelectorAll in specified roots and adds valid elements to the map */
-    private static findElements(
-        rootsToSearch: { name: string; root: Document | Element }[],
-        selector: string,
-        candidates: Map<HTMLElement, string>,
-        strategyName: string,
-        isDocumentFallback: boolean = false,
-        textFilter?: string
-    ): void {
-        let strategyFoundCount = 0;
-
-        for (const { name, root } of rootsToSearch) {
-            try {
-                 const contextMsg = isDocumentFallback ? "(Document Fallback)" : `in root \"${name}\" context`;
-                 if(this.debugMode) console.log(`[RobustFinder]   Searching ${contextMsg}:`, root);
-                 const foundElements = root.querySelectorAll(selector);
-
-                 if (foundElements.length > 0) {
-                    const logMsg = `[RobustFinder]   ${strategyName} ${isDocumentFallback ? '(Document Fallback)' : `in ${name}`}: Selector "${selector}" found ${foundElements.length} element(s).`;
-                    // Log verbosely only in debug or if found in Document fallback (to confirm fallback was needed)
-                    if (this.debugMode || (isDocumentFallback && foundElements.length > 0)) {
-                        console.log(logMsg);
-                    } else if (foundElements.length > 0) {
-                        // Less verbose log for non-document roots when not debugging
-                        console.log(`[RobustFinder]   ${strategyName} in ${name} found ${foundElements.length}.`);
-                    }
-                 }
-
-                 foundElements.forEach(element => {
-                    if (element instanceof HTMLElement) {
-                        // Basic text check - only if textFilter provided
-                        const passesTextCheck = !textFilter || this.isTextContentMatching(element, textFilter);
-
-                        if (passesTextCheck) {
-                            if (!candidates.has(element)) {
-                                const foundContext = `${strategyName} (${isDocumentFallback ? 'Document Fallback' : `in ${name}`})`;
-                                candidates.set(element, foundContext);
-                                strategyFoundCount++;
-                                console.log(`[RobustFinder]     + Added candidate via ${foundContext}:`, element.tagName, element.id);
-                                if (this.debugMode) {
-                                    console.log(`[RobustFinder-DEBUG]       HTML:`, element.outerHTML);
-                                }
-                            }
-                        }
-                        else if (this.debugMode && textFilter) {
-                             console.log(`[RobustFinder-DEBUG]     - Skipped candidate (failed text match):`, element.tagName, element.id);
-                        }
-                    }
-                });
-
-            } catch (e) {
-                 const errorContext = isDocumentFallback ? "Document Fallback" : name;
-                 if (!(e instanceof DOMException && e.message.includes("is not a valid selector"))) {
-                     console.warn(`[RobustFinder] Error executing selector "${selector}" in ${errorContext} via ${strategyName}:`, e);
-                 } else if (this.debugMode) {
-                     console.log(`[RobustFinder] Info: Selector "${selector}" is invalid for querySelectorAll in ${errorContext}.`);
-                 }
-            }
-        }
-    }
-
-    /** Helper to evaluate XPath specifically */
-    private static evaluateXPathInRoots(
-        rootsToSearch: { name: string; root: Document | Element }[],
-        xpath: string,
-        candidates: Map<HTMLElement, string>,
-        strategyName: string,
-        isDocumentFallback: boolean = false,
-        targetText?: string
-    ): void {
-        for (const { name, root } of rootsToSearch) {
-            try {
-                const contextMsg = isDocumentFallback ? "(Document Fallback)" : `in root \"${name}\" context`;
-                if(this.debugMode) console.log(`[RobustFinder]   Evaluating XPath ${contextMsg}: ${xpath}`);
-
-                const result = document.evaluate(xpath, root, null, XPathResult.ORDERED_NODE_ITERATOR_TYPE, null);
-                let node = result.iterateNext();
-                let foundCount = 0;
-                while (node) {
-                    if (node instanceof HTMLElement) {
-                        // Basic text check - only if targetText provided
-                        const passesTextCheck = !targetText || this.isTextContentMatching(node, targetText);
-
-                        if (passesTextCheck) {
-                            if (!candidates.has(node)) {
-                                const foundContext = `${strategyName} (${isDocumentFallback ? 'Document Fallback' : `in ${name}`})`;
-                                candidates.set(node, foundContext);
-                                foundCount++;
-                                console.log(`[RobustFinder]     + Added candidate via ${foundContext}:`, node.tagName, node.id);
-                                if (this.debugMode) {
-                                    console.log(`[RobustFinder-DEBUG]       HTML:`, node.outerHTML);
-                                }
-                            }
-                        } else if (this.debugMode && targetText) {
-                            console.log(`[RobustFinder-DEBUG]   - Skipped XPath result (failed text match):`, node.tagName, node.id);
-                        }
-                    }
-                    node = result.iterateNext();
-                }
-            } catch (e) {
-                const errorContext = isDocumentFallback ? "Document Fallback" : name;
-                console.warn(`[RobustFinder] Error evaluating XPath "${xpath}" in ${errorContext}:`, e);
-            }
-        }
-    }
-
-    /** Simplified text content matching - basic implementation for candidate filtering */
-    private static isTextContentMatching(element: HTMLElement, targetText: string): boolean {
-        if (!targetText || targetText.trim() === '') return true;
-        
-        const searchLowerTrimmed = targetText.toLowerCase().trim();
-        
-        // Prioritize direct text content or value for a stricter match
-        const textTrimmed = (element.textContent || '').trim().toLowerCase();
-        const innerTextTrimmed = (element.innerText || '').trim().toLowerCase();
-        const valueTrimmed = (element as HTMLInputElement).value?.trim().toLowerCase(); // Optional chaining for value
-        
-        // Check for near-exact match after trimming and lowercasing
-        if (textTrimmed === searchLowerTrimmed || 
-            innerTextTrimmed === searchLowerTrimmed || 
-            (valueTrimmed !== undefined && valueTrimmed === searchLowerTrimmed)) {
-            return true;
-        }
-
-        // Fallback: Allow fuzzy 'includes' ONLY if it's likely an interactive element or direct text node?
-        // For now, let's keep it stricter to avoid the container issue. 
-        // If this becomes too strict, we might need more nuanced logic here.
-        
-        // If no near-exact match, return false for initial filtering.
-        return false; 
-    }
-
-    /** Parses the attributes string/object */
     private static parseAttributes(attrs: string | { [key: string]: string } | undefined): { [key: string]: string } | null {
          if (!attrs) return null;
          if (typeof attrs === 'object') return attrs;
          try {
             return JSON.parse(attrs);
          } catch (e) {
-            // REMOVED: if (this.debugMode)
             console.error("[RobustFinder] Failed to parse attributes JSON:", attrs, e);
             return null;
          }
     }
 
-    /** Builds potentially useful attribute selectors */
-    private static buildAttributeSelectors(tagName: string | undefined, attributes: { [key: string]: string }): string[] {
-        const selectors: string[] = [];
-        const tagPrefix = tagName ? tagName.toLowerCase() : '';
-
-        // Prioritize potentially stable attributes
-        const stableAttrs = ['name', 'data-testid', 'role', 'type', 'placeholder', 'aria-label', 'title'];
-        for (const attr of stableAttrs) {
-            if (attributes[attr]) {
-                selectors.push(`${tagPrefix}[${attr}="${CSS.escape(attributes[attr])}"]`);
-            }
-        }
-
-        // Add specific common attributes if present
-        if (attributes['href']) {
-             selectors.push(`${tagPrefix}[href="${CSS.escape(attributes['href'])}"]`);
-        }
-         if (attributes['src']) {
-             selectors.push(`${tagPrefix}[src="${CSS.escape(attributes['src'])}"]`);
-        }
-
-        // Add role if present and not already used by stableAttrs
-        if (attributes['role'] && !stableAttrs.includes('role')) {
-             selectors.push(`${tagPrefix}[role="${CSS.escape(attributes['role'])}"]`);
-        }
-
-
-        return selectors;
-    }
-
-    /** Attempts to escape a CSS selector - basic implementation */
     private static tryEscapeSelector(selector: string): string {
-         // Focuses on escaping characters within an ID hash or attribute values
-         // Note: This is NOT a full CSS parser/escaper.
          try {
-             // Escape hashes potentially containing special chars
-             selector = selector.replace(/#((?:\\.|[\w-]|[^\x00-\xa0])+)(\S*)/g, (match, idPart, remainder) => {
-                 return `#${idPart}${CSS.escape(remainder)}`;
-             });
-             // Escape attribute values (simple approach)
-             selector = selector.replace(/\[([^\]=]+)=["']?([^\]"']+)["']?\]/g, (match, attr, value) => {
-                 return `[${attr}="${CSS.escape(value)}"]`;
-             });
+             selector = selector.replace(/#((?:\\.|[\w-]|[^\x00-\xa0])+)(\S*)/g, (match, idPart, remainder) => `#${idPart}${CSS.escape(remainder)}`);
+             selector = selector.replace(/\[([^\]=]+)=["']?([^\]"']+)["']?\]/g, (match, attr, value) => `[${attr}="${CSS.escape(value)}"]`);
          } catch (e) {
-             // REMOVED: if (this.debugMode)
              console.warn(`[RobustFinder] CSS escaping failed for selector: ${selector}`, e);
-             return selector; // Return original if escaping fails
          }
          return selector;
     }
 
-     /** Reconstruct XPath from path segments - MODIFIED TO USE DOUBLE QUOTES */
      private static buildXPath(pathSegments: string[] | undefined): string | null {
         if (!pathSegments || pathSegments.length === 0) return null;
 
@@ -601,79 +435,23 @@ export class RobustElementFinder {
         }
     }
 
-    // --- ADDED: Portal/Modal Stability Wait --- 
     private static waitForModalStability(initialDelay = 150, checkInterval = 100, maxAttempts = 20, stabilityThreshold = 3): Promise<void> {
         return new Promise(resolve => {
-            if (this.debugMode) console.log('[RobustFinder-Stability] Starting stability check...');
-
-            // Selectors to monitor (combine portal and common modal roots)
-            const stabilitySelectors = 
-                '[data-portal="true"], [role="dialog"], .modal-content, .mantine-Modal-content, .MuiDialog-paper, .MuiModal-root > div[role="presentation"]:not([aria-hidden="true"])'; 
-            
+            const shouldLogStability = this.debugMode; 
+            if (shouldLogStability) console.log('[RobustFinder-Stability] Starting stability check...');
+            const stabilitySelectors ='[data-portal="true"], [role="dialog"], .modal-content, .mantine-Modal-content, .MuiDialog-paper, .MuiModal-root > div[role="presentation"]:not([aria-hidden="true"])';
             const initialElements = document.querySelectorAll(stabilitySelectors);
-
-            if (initialElements.length === 0) {
-                if (this.debugMode) console.log('[RobustFinder-Stability] No initial modal/portal elements found. Resolving immediately.');
-                resolve();
-                return;
-            }
-
-            let stableCount = 0;
-            let lastElementCount = initialElements.length;
-            let lastStructureSignature = ''; // More robust check
-            let attempts = 0;
-
-            const getStructureSignature = (elements: NodeListOf<Element>): string => {
-                return Array.from(elements).map(el => {
-                    const rect = el.getBoundingClientRect();
-                    // Signature includes tag, id (if any), class count, and basic geometry
-                    return `${el.tagName}${el.id ? '#'+el.id : ''}:${el.classList.length}:${Math.round(rect.width)}x${Math.round(rect.height)}@${Math.round(rect.left)},${Math.round(rect.top)}`;
-                }).join('|');
-            };
-
+            if (initialElements.length === 0) { if (shouldLogStability) console.log('[RobustFinder-Stability] No initial modal/portal elements found. Resolving immediately.'); resolve(); return; }
+            let stableCount = 0, lastElementCount = initialElements.length, lastStructureSignature = '', attempts = 0;
+            const getStructureSignature = (elements: NodeListOf<Element>): string => { return Array.from(elements).map(el => { const r = el.getBoundingClientRect(); return `${el.tagName}${el.id?'#'+el.id:''}:${el.classList.length}:${Math.round(r.width)}x${Math.round(r.height)}@${Math.round(r.left)},${Math.round(r.top)}`}).join('|'); };
             lastStructureSignature = getStructureSignature(initialElements);
-
-            const checkStability = () => {
-                attempts++;
-                const currentElements = document.querySelectorAll(stabilitySelectors);
-                const currentStructureSignature = getStructureSignature(currentElements);
-
-                if (this.debugMode) {
-                     console.log(`[RobustFinder-Stability] Check #${attempts}: Found ${currentElements.length} elements. Sig: ${currentStructureSignature.substring(0,100)}...`);
-                }
-
-                if (currentElements.length === lastElementCount && currentStructureSignature === lastStructureSignature) {
-                    stableCount++;
-                    if (this.debugMode) console.log(`[RobustFinder-Stability] Structure stable for ${stableCount} checks.`);
-
-                    if (stableCount >= stabilityThreshold) {
-                        if (this.debugMode) console.log('[RobustFinder-Stability] Structure deemed stable. Resolving.');
-                        resolve();
-                        return;
-                    }
-                } else {
-                    if (this.debugMode) console.log('[RobustFinder-Stability] Structure changed. Resetting stability counter.');
-                    stableCount = 0;
-                    lastElementCount = currentElements.length;
-                    lastStructureSignature = currentStructureSignature;
-                }
-
-                if (attempts < maxAttempts) {
-                    setTimeout(checkStability, checkInterval);
-                } else {
-                    if (this.debugMode) console.log('[RobustFinder-Stability] Max attempts reached. Resolving anyway.');
-                    resolve();
-                }
-            };
-
-            // Start checking after the initial delay
+            const checkStability = () => { attempts++; const currentElements = document.querySelectorAll(stabilitySelectors); const currentStructureSignature = getStructureSignature(currentElements); if (shouldLogStability) { console.log(`[RobustFinder-Stability] Check #${attempts}: Found ${currentElements.length} elements. Sig: ${currentStructureSignature.substring(0,100)}...`); } if (currentElements.length === lastElementCount && currentStructureSignature === lastStructureSignature) { stableCount++; if (shouldLogStability) console.log(`[RobustFinder-Stability] Structure stable for ${stableCount} checks.`); if (stableCount >= stabilityThreshold) { if (shouldLogStability) console.log('[RobustFinder-Stability] Structure deemed stable. Resolving.'); resolve(); return; } } else { if (shouldLogStability) console.log('[RobustFinder-Stability] Structure changed. Resetting stability counter.'); stableCount = 0; lastElementCount = currentElements.length; lastStructureSignature = currentStructureSignature; } if (attempts < maxAttempts) { setTimeout(checkStability, checkInterval); } else { if (shouldLogStability) console.log('[RobustFinder-Stability] Max attempts reached. Resolving anyway.'); resolve(); } };
             setTimeout(checkStability, initialDelay);
         });
     }
-    // --- End Stability Wait --- 
 
-    /** Checks if elements are in viewport and attempts to scroll them into view if not */
-    private static async ensureCandidatesInView(candidates: HTMLElement[]): Promise<HTMLElement[]> {
+    // Keep these as public static if CursorFlow needs them for scrolling
+    public static async ensureCandidatesInView(candidates: HTMLElement[]): Promise<HTMLElement[]> {
         const visibleCandidates: HTMLElement[] = [];
         
         // Try different scroll behaviors if the first one doesn't work
@@ -773,8 +551,7 @@ export class RobustElementFinder {
         return visibleCandidates;
     }
     
-    /** Finds the closest parent that has scrollable overflow */
-    private static findScrollableParent(element: HTMLElement): HTMLElement | null {
+    public static findScrollableParent(element: HTMLElement): HTMLElement | null {
         if (!element) return null;
         
         // Start with the parent element

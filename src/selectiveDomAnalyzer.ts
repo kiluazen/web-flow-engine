@@ -412,24 +412,37 @@ export class SelectiveDomAnalyzer {
     // --- Text Match Helper ---
      // MODIFIED: Replaced with logic from RobustElementFinder.fuzzyTextMatch
      private static isTextMatch(element: HTMLElement, targetText: string | undefined): boolean {
-        if (targetText === undefined || targetText === null) return true; // No text to match
+        if (targetText === undefined || targetText === null || targetText.trim() === '') return true; // No text to match or empty target text
 
-        const elementText = (element.textContent || "").trim();
-        const elementInnerText = (element.innerText || "").trim(); 
-        const elementValue = (element as HTMLInputElement).value?.trim(); // Check input value
-        const search = targetText.trim();
+        // Normalize the targetText (from interaction data) by lowercasing, trimming, and removing all whitespace
+        const normalizedTargetText = targetText.trim().toLowerCase().replace(/\s+/g, '');
 
-        // Exact match check
-        if (elementInnerText === search || elementText === search || (elementValue && elementValue === search)) {
-            return true;
+        const elementTextContent = (element.textContent || "").trim().toLowerCase().replace(/\s+/g, '');
+        const elementInnerText = (element.innerText || "").trim().toLowerCase().replace(/\s+/g, '');
+        // Prefer innerText if available and not empty, otherwise fall back to textContent
+        const bestElementText = elementInnerText.length > 0 ? elementInnerText : elementTextContent;
+
+        const elementValue = (element as HTMLInputElement).value || '';
+        const normalizedElementValue = elementValue.trim().toLowerCase().replace(/\s+/g, '');
+        
+        // Note: SelectiveDomAnalyzer's original isTextMatch didn't check aria-label, maintaining that for now.
+        // If aria-label matching is needed here, it can be added.
+
+        if (this.debugMode) {
+            console.log(`[SelectiveDomAnalyzer] Text Matching:
+    - Target (normalized): "${normalizedTargetText}"
+    - Element Best Text (normalized): "${bestElementText}" (from innerText/textContent)
+    - Element Value (normalized): "${normalizedElementValue}"`);
         }
 
-        // Fuzzy match check (case-insensitive contains)
-        const searchLower = search.toLowerCase();
-        if (elementInnerText.toLowerCase().includes(searchLower) || 
-            elementText.toLowerCase().includes(searchLower) ||
-            (elementValue && elementValue.toLowerCase().includes(searchLower))) {
-            return true; 
+        // The original logic here performed both exact and includes check.
+        // Replicating a similar behavior: check if the normalized element text includes the normalized target.
+        // For a stricter "exact" match like in RobustFinder, the condition would be `===`.
+        if (bestElementText.includes(normalizedTargetText)) {
+            return true;
+        }
+        if (normalizedElementValue.length > 0 && normalizedElementValue.includes(normalizedTargetText)) { // Only check value if it exists
+            return true;
         }
 
         return false; // No match found

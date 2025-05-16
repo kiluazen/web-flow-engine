@@ -3,16 +3,17 @@ import axios, { AxiosInstance } from 'axios';
 export class ApiClient {
   private baseUrl: string;
   private client: AxiosInstance;
-  private organizationId: string;
+  private apiKey: string;
   
-  constructor(baseUrl: string, organizationId: string) {
+  constructor(baseUrl: string, apiKey: string) {
     this.baseUrl = baseUrl;
-    this.organizationId = organizationId;
+    this.apiKey = apiKey;
     this.client = axios.create({
       baseURL: baseUrl,
       timeout: 10000,
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-API-Key': this.apiKey
       }
     });
   }
@@ -22,9 +23,7 @@ export class ApiClient {
    */
   async getRecording(id: string): Promise<any> {
     try {
-      const response = await this.client.get(`/api/recordings/${id}`, {
-        params: { organizationId: this.organizationId }
-      });
+      const response = await this.client.get(`/api/recordings/${id}`);
       return response.data; // The flow data is returned directly now
     } catch (error) {
       console.error('Failed to fetch flow:', error);
@@ -37,7 +36,7 @@ export class ApiClient {
    */
   async getRecordings(searchQuery?: string): Promise<any> {
     try {
-      const params: any = { organizationId: this.organizationId };
+      const params: any = {};
       if (searchQuery) {
         params.searchQuery = searchQuery;
       }
@@ -91,9 +90,7 @@ export class ApiClient {
    */
   async validateRecording(id: string): Promise<boolean> {
     try {
-      const response = await this.client.get(`/api/recordings/${id}/validate`, {
-        params: { organizationId: this.organizationId }
-      });
+      const response = await this.client.get(`/api/recordings/${id}/validate`);
       return response.data.valid;
     } catch (error) {
       return false;
@@ -109,7 +106,6 @@ export class ApiClient {
     try {
       console.log(`[API Client] Performing semantic search for query: "${query}"`);
       const response = await this.client.post('/api/flows/semantic-search', {
-        organizationId: this.organizationId,
         query: query
       });
 
@@ -134,8 +130,8 @@ export class ApiClient {
    */
   async getOrganizationTheme(): Promise<{ brand_color: string, cursor_company_label: string | null, logo_url: string | null } | null> {
     try {
-      console.log(`[API Client] Fetching theme for organization: ${this.organizationId}`);
-      const response = await this.client.get(`/api/organizations/${this.organizationId}/theme`);
+      console.log(`[API Client] Fetching theme for current organization (via API Key)`);
+      const response = await this.client.get(`/api/sdk/theme`);
       
       // The endpoint returns { theme: { ... } } or an error
       console.log('[API Client] Organization theme response:', response.data);
@@ -144,7 +140,7 @@ export class ApiClient {
       console.error('Failed to fetch organization theme:', error);
       // Check for 404 explicitly
       if (axios.isAxiosError(error) && error.response?.status === 404) {
-        console.warn(`[API Client] Theme not found for organization ${this.organizationId}.`);
+        console.warn(`[API Client] Theme not found for organization.`);
       } else {
         // Log other errors
         console.error('Error fetching theme details:', error);

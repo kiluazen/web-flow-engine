@@ -9,6 +9,15 @@ interface EnhancedHTMLElement extends HTMLElement {
   [key: string]: any; // Allow any string property
 }
 
+// Define EnhancedGuidanceCard at the top level
+interface EnhancedGuidanceCard extends HTMLElement {
+    _hyphenAnchorElement?: HTMLElement | null;
+    _scrollResizeHandler?: () => void;
+    _observer?: MutationObserver;
+    _rAfId?: number;
+    _mutationDebounceTimeout?: number;
+}
+
 export interface ThemeOptions {
   buttonColor?: string;
   brand_color?: string;
@@ -743,30 +752,322 @@ export class CursorFlowUI {
   }
 
   static createTextPopup(text: string, theme: ThemeOptions): HTMLElement {
+    console.log('[CursorFlowUI] createTextPopup called with params:', { text: text.substring(0, 30) + '...', themeKeys: Object.keys(theme || {}) });
+    
     const popup = document.createElement('div');
     popup.className = 'hyphen-text-popup';
     popup.id = 'hyphenbox-text-popup';  // Updated ID
-    popup.textContent = text;
+
+    // Create the text content
+    const textContainer = document.createElement('div');
+    textContainer.className = 'hyphen-popup-content';
+    textContainer.textContent = text;
     
-    // Basic styling
-    popup.style.position = 'fixed';
-    popup.style.zIndex = '9998';
-    popup.style.backgroundColor = '#ffffff';
-    popup.style.border = '1px solid #e0e0e0';
-    popup.style.boxShadow = '0 2px 5px rgba(0,0,0,0.1)';
-    popup.style.borderRadius = '4px';
-    popup.style.padding = '8px 12px';
+    // Set styles for popup
+    popup.style.position = 'absolute';
+    popup.style.background = 'white';
+    popup.style.padding = '12px';
+    popup.style.borderRadius = '8px';
+    popup.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
+    popup.style.maxWidth = '300px';
+    popup.style.zIndex = '9999'; // Keep zIndex high for tooltips
     popup.style.fontSize = '14px';
     popup.style.lineHeight = '1.4';
-    popup.style.color = '#333333';
-    popup.style.minWidth = '150px';      // Minimum width to prevent too narrow wrapping
-    popup.style.maxWidth = '300px';      // Maximum width for very long content
-    popup.style.width = 'max-content';   // Let content determine width up to maxWidth
-    popup.style.whiteSpace = 'normal';   // Allow wrapping
-    popup.style.wordWrap = 'break-word'; // Break long words if needed
-    popup.style.wordBreak = 'normal';    // Use normal word breaking rules
+    popup.style.color = '#333';
+    popup.style.wordWrap = 'break-word';
+    popup.style.wordBreak = 'normal'; // Use normal to prevent awkward breaks
     
+    // Add the text content to the popup
+    popup.appendChild(textContainer);
+    
+    console.log('[CursorFlowUI] Basic text-only popup created with ID:', popup.id);
+    // Button creation logic removed
+    
+    console.log('[CursorFlowUI] Final text-only popup structure:', popup.outerHTML.substring(0, 200) + '...');
     return popup;
+  }
+
+  static createGuidanceCard(text: string, isLastStep: boolean, theme: ThemeOptions): HTMLElement {
+    console.log('[CursorFlowUI] createGuidanceCard called with params:', { text: text.substring(0, 30) + '...', isLastStep, themeKeys: Object.keys(theme || {}) });
+
+    const card = document.createElement('div');
+    card.className = 'hyphen-guidance-card';
+    card.id = 'hyphen-guidance-card'; // Unique ID for the card
+
+    card.style.position = 'fixed'; // Default to fixed, will be overridden if placed near highlight
+    card.style.backgroundColor = 'white';
+    card.style.padding = '20px';
+    card.style.borderRadius = '12px';
+    card.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+    card.style.maxWidth = '450px'; // Slightly wider for card feel
+    card.style.minWidth = '300px';
+    card.style.zIndex = '10000'; // High zIndex
+    card.style.fontSize = '14px';
+    card.style.lineHeight = '1.5';
+    card.style.color = '#333';
+    card.style.display = 'flex';
+    card.style.flexDirection = 'column';
+    card.style.gap = '15px'; // Space between text and button container
+    card.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+    const textContainer = document.createElement('div');
+    textContainer.className = 'hyphen-guidance-text';
+    textContainer.textContent = text;
+    textContainer.style.wordWrap = 'break-word';
+
+    const actionContainer = document.createElement('div');
+    actionContainer.className = 'hyphen-guidance-actions';
+    actionContainer.style.display = 'flex';
+    actionContainer.style.justifyContent = 'flex-end'; // Align button to the right
+
+    const stepButton = document.createElement('button');
+    stepButton.textContent = isLastStep ? 'Finish' : 'Next';
+    // Add specific classes for easier selection later
+    stepButton.className = isLastStep ? 'hyphen-finish-button hyphen-cta-button' : 'hyphen-next-button hyphen-cta-button';
+    stepButton.type = 'button';
+
+    const importantStyles = {
+        'display': 'inline-block', // Changed to inline-block
+        'padding': '10px 20px',
+        'border': 'none',
+        'border-radius': '8px',
+        'cursor': 'pointer',
+        'background-color': theme.brand_color || '#007bff',
+        'color': 'white',
+        'font-size': '14px',
+        'font-weight': '600',
+        'text-align': 'center',
+        'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        'margin': '0',
+        'line-height': '1.5',
+        'text-decoration': 'none',
+        'transition': 'background-color 0.2s ease, box-shadow 0.2s ease'
+    };
+
+    Object.entries(importantStyles).forEach(([property, value]) => {
+        stepButton.style.setProperty(property, value, 'important');
+    });
+    stepButton.style.setProperty('box-shadow', '0 2px 4px rgba(0,0,0,0.1)', 'important');
+
+    if ((theme.brand_color || '#007bff').toLowerCase() === '#ffffff' || (theme.brand_color || '#007bff').toLowerCase() === 'white') {
+        stepButton.style.setProperty('color', '#333333', 'important');
+        stepButton.style.setProperty('border', '1px solid #cccccc', 'important');
+    }
+
+    stepButton.addEventListener('mouseenter', () => {
+        stepButton.style.setProperty('box-shadow', '0 4px 8px rgba(0,0,0,0.15)', 'important');
+        // Consider adjusting brightness slightly on hover, e.g., using a helper
+        // stepButton.style.setProperty('background-color', this.adjustColor(theme.brand_color || '#007bff', -20), 'important');
+
+    });
+    stepButton.addEventListener('mouseleave', () => {
+        stepButton.style.setProperty('box-shadow', '0 2px 4px rgba(0,0,0,0.1)', 'important');
+        // stepButton.style.setProperty('background-color', theme.brand_color || '#007bff', 'important');
+    });
+
+    actionContainer.appendChild(stepButton);
+
+    card.appendChild(textContainer);
+    card.appendChild(actionContainer);
+
+    // Entrance animation for the card - will be triggered after positioning
+    // card.animate([
+    //     { opacity: 0, transform: 'translateX(-50%) translateY(20px)' },
+    //     { opacity: 1, transform: 'translateX(-50%) translateY(0)' }
+    // ], {
+    //     duration: 300,
+    //     easing: 'ease-out'
+    // });
+
+    console.log('[CursorFlowUI] Guidance card created (pre-positioning):', card.outerHTML.substring(0, 250) + '...');
+    return card;
+  }
+
+  static positionGuidanceCard(guidanceCard: HTMLElement, highlightElement: HTMLElement | null): void {
+    if (!guidanceCard) return;
+
+    // EnhancedHTMLElement for storing custom properties
+    // interface EnhancedGuidanceCard extends HTMLElement { ... } // REMOVED local definition
+
+    const card = guidanceCard as EnhancedGuidanceCard;
+
+    // --- Cleanup previous dynamic tracking if any ---
+    if (card._scrollResizeHandler) {
+        window.removeEventListener('scroll', card._scrollResizeHandler);
+        window.removeEventListener('resize', card._scrollResizeHandler);
+        window.removeEventListener('orientationchange', card._scrollResizeHandler);
+        card._scrollResizeHandler = undefined;
+    }
+    if (card._observer) {
+        card._observer.disconnect();
+        card._observer = undefined;
+    }
+    if (card._rAfId) {
+        cancelAnimationFrame(card._rAfId);
+        card._rAfId = undefined;
+    }
+    if (card._mutationDebounceTimeout) {
+        clearTimeout(card._mutationDebounceTimeout);
+        card._mutationDebounceTimeout = undefined;
+    }
+    // --- End Cleanup ---
+
+    card._hyphenAnchorElement = highlightElement;
+
+    const updateCardPositionLogic = () => {
+        if (!document.body.contains(card)) { // Card might have been removed
+            // Ensure cleanup if card is no longer in DOM
+            if (card._scrollResizeHandler) window.removeEventListener('scroll', card._scrollResizeHandler);
+            if (card._scrollResizeHandler) window.removeEventListener('resize', card._scrollResizeHandler);
+            if (card._scrollResizeHandler) window.removeEventListener('orientationchange', card._scrollResizeHandler);
+            if (card._observer) card._observer.disconnect();
+            if (card._rAfId) cancelAnimationFrame(card._rAfId);
+            if (card._mutationDebounceTimeout) clearTimeout(card._mutationDebounceTimeout);
+            return;
+        }
+
+        const GAP = 15;
+        // Ensure card is measurable (briefly visible off-screen if needed, but usually appending is enough)
+        // card.style.visibility = 'hidden'; card.style.position = 'fixed'; card.style.left = '-9999px';
+        const cardRect = card.getBoundingClientRect();
+        // card.style.visibility = ''; card.style.position = ''; card.style.left = '';
+
+        let bestPosition: { top: number; left: number; positionType: 'absolute' | 'fixed'; transform?: string } | null = null;
+        const currentAnchor = card._hyphenAnchorElement;
+
+        if (currentAnchor && document.body.contains(currentAnchor)) {
+            const highlightRect = currentAnchor.getBoundingClientRect();
+            const scrollX = window.scrollX || window.pageXOffset;
+            const scrollY = window.scrollY || window.pageYOffset;
+
+            const positions = [
+                { type: 'right', top: highlightRect.top + scrollY + (highlightRect.height / 2) - (cardRect.height / 2), left: highlightRect.right + scrollX + GAP, pos: 'absolute' as 'absolute' },
+                { type: 'left', top: highlightRect.top + scrollY + (highlightRect.height / 2) - (cardRect.height / 2), left: highlightRect.left + scrollX - cardRect.width - GAP, pos: 'absolute' as 'absolute' },
+                { type: 'bottom', top: highlightRect.bottom + scrollY + GAP, left: highlightRect.left + scrollX + (highlightRect.width / 2) - (cardRect.width / 2), pos: 'absolute' as 'absolute' },
+                { type: 'top', top: highlightRect.top + scrollY - cardRect.height - GAP, left: highlightRect.left + scrollX + (highlightRect.width / 2) - (cardRect.width / 2), pos: 'absolute' as 'absolute' }
+            ];
+
+            for (const pos of positions) {
+                if (pos.top - scrollY >= 0 && pos.left - scrollX >= 0 && (pos.top - scrollY + cardRect.height) <= window.innerHeight && (pos.left - scrollX + cardRect.width) <= window.innerWidth) {
+                    bestPosition = { top: pos.top, left: pos.left, positionType: pos.pos };
+                    break;
+                }
+            }
+        }
+
+        const currentCardPosition = card.style.position;
+        const currentCardTop = card.style.top;
+        const currentCardLeft = card.style.left;
+        const currentCardBottom = card.style.bottom;
+        const currentCardTransform = card.style.transform;
+
+        let positionChanged = false;
+
+        if (bestPosition) {
+            if (card.style.position !== bestPosition.positionType || card.style.top !== `${bestPosition.top}px` || card.style.left !== `${bestPosition.left}px`) {
+                card.style.position = bestPosition.positionType;
+                card.style.top = `${bestPosition.top}px`;
+                card.style.left = `${bestPosition.left}px`;
+                card.style.bottom = 'auto';
+                card.style.right = 'auto';
+                card.style.transform = bestPosition.transform || 'none';
+                positionChanged = true;
+            }
+             if (card.style.opacity !== '1') card.style.opacity = '1'; // Ensure visible
+        } else {
+            // Fallback: screen bottom-center
+            const fallbackPosition = { pos: 'fixed' as 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)' };
+            if (card.style.position !== fallbackPosition.pos || card.style.bottom !== fallbackPosition.bottom || card.style.left !== fallbackPosition.left || card.style.transform !== fallbackPosition.transform) {
+                card.style.position = fallbackPosition.pos;
+                card.style.bottom = fallbackPosition.bottom;
+                card.style.left = fallbackPosition.left;
+                card.style.top = 'auto';
+                card.style.right = 'auto';
+                card.style.transform = fallbackPosition.transform;
+                positionChanged = true;
+            }
+             if (card.style.opacity !== '1') card.style.opacity = '1'; // Ensure visible
+        }
+        
+        // Trigger animation only if it's the first time or position actually changed
+        // For simplicity, we can check if an animation is already running or just animate once on setup.
+        // The current logic in the original function animates every time.
+        // Let's assume animation is desired on first positioning or significant change.
+        // A more robust way would be to check if new position is significantly different.
+        // For now, let's animate based on the positionChanged flag.
+        if (positionChanged && !card.getAnimations().some(anim => anim.playState === 'running')) { // Animate if position changed and no animation is running
+             const targetTransform = bestPosition ? (bestPosition.transform || 'none') : 'translateX(-50%)';
+             const initialYOffset = bestPosition ? '10px' : '20px'; // Different offset for absolute vs fixed
+             const finalYOffset = '0px';
+
+            let initialTransform = targetTransform;
+            if (targetTransform === 'none' || targetTransform === '') {
+                initialTransform = `translateY(${initialYOffset})`;
+            } else {
+                 // Combine existing transform with translateY
+                 // This is tricky; for simplicity, let's assume separate transforms for now or use a wrapper for animation.
+                 // For now, if there's a horizontal transform, we'll just fade in.
+                 if(targetTransform.includes('translateX')) {
+                    initialTransform = `${targetTransform} translateY(${initialYOffset})`;
+                 } else {
+                    initialTransform = `translateY(${initialYOffset})`;
+                 }
+            }
+            
+            card.animate([
+                { opacity: 0, transform: initialTransform },
+                { opacity: 1, transform: targetTransform === 'none' ? `translateY(${finalYOffset})` : `${targetTransform} translateY(${finalYOffset})` }
+            ], {
+                duration: 300,
+                easing: 'ease-out',
+                fill: 'forwards' // Keep final state
+            });
+        } else if (card.style.opacity !== '1') {
+            card.style.opacity = '1'; // Ensure visible if no animation
+        }
+
+    };
+
+    // Initial position update
+    updateCardPositionLogic();
+
+    // --- Setup dynamic tracking ---
+    const scrollResizeHandler = () => {
+        if (card._rAfId) cancelAnimationFrame(card._rAfId);
+        card._rAfId = requestAnimationFrame(() => {
+            if (document.body.contains(card)) { // Only update if card is still in DOM
+                updateCardPositionLogic();
+            }
+        });
+    };
+    card._scrollResizeHandler = scrollResizeHandler;
+
+    window.addEventListener('scroll', scrollResizeHandler, { passive: true });
+    window.addEventListener('resize', scrollResizeHandler, { passive: true });
+    window.addEventListener('orientationchange', scrollResizeHandler);
+
+    const observerCallback: MutationCallback = (mutationsList) => {
+        if (card._mutationDebounceTimeout) clearTimeout(card._mutationDebounceTimeout);
+        card._mutationDebounceTimeout = window.setTimeout(() => {
+            if (document.body.contains(card)) { // Only update if card is still in DOM
+                 console.log('[CursorFlowUI] Guidance card: Mutation detected, updating position.');
+                 updateCardPositionLogic();
+            }
+        }, 50); // Debounce mutations slightly
+    };
+    card._observer = new MutationObserver(observerCallback);
+
+    const observerConfig = { attributes: true, childList: true, subtree: true, characterData: true };
+    if (card._hyphenAnchorElement && document.body.contains(card._hyphenAnchorElement)) {
+        card._observer.observe(card._hyphenAnchorElement, observerConfig);
+        if (card._hyphenAnchorElement.parentElement) {
+            card._observer.observe(card._hyphenAnchorElement.parentElement, { childList: true, subtree: false });
+        }
+    }
+    // Observe body for major layout shifts, but be cautious with subtree true on body.
+    // Only observe direct children of body for additions/removals.
+    card._observer.observe(document.body, { childList: true, subtree: false });
+    console.log('[CursorFlowUI] Dynamic tracking setup for guidance card.');
   }
 
   static moveCursorToElement(element: HTMLElement, cursor: HTMLElement | null, interaction: any): void {
@@ -869,6 +1170,14 @@ export class CursorFlowUI {
         childList: true,
         subtree: true
     });
+
+    // ALSO Observe the parent for childList changes (detect sibling additions/removals)
+    if (element.parentElement) {
+        observer.observe(element.parentElement, {
+            childList: true,
+            subtree: false // Only direct children of the parent
+        });
+    }
     
     // Store the observer on the wrapper for later cleanup
     wrapper['observer'] = observer;
@@ -1497,6 +1806,34 @@ export class CursorFlowUI {
     const textPopup = document.getElementById('hyphenbox-text-popup');
     if (textPopup && textPopup.parentNode) {
         textPopup.parentNode.removeChild(textPopup);
+    }
+
+    // Clean up the new guidance card by ID
+    const guidanceCard = document.getElementById('hyphen-guidance-card') as EnhancedGuidanceCard; // Use enhanced type
+    if (guidanceCard) {
+      // Disconnect observer and remove listeners added by positionGuidanceCard
+      if (guidanceCard._observer) {
+        guidanceCard._observer.disconnect();
+        guidanceCard._observer = undefined;
+      }
+      if (guidanceCard._scrollResizeHandler) {
+          window.removeEventListener('scroll', guidanceCard._scrollResizeHandler);
+          window.removeEventListener('resize', guidanceCard._scrollResizeHandler);
+          window.removeEventListener('orientationchange', guidanceCard._scrollResizeHandler);
+          guidanceCard._scrollResizeHandler = undefined;
+      }
+      if (guidanceCard._rAfId) {
+          cancelAnimationFrame(guidanceCard._rAfId);
+          guidanceCard._rAfId = undefined;
+      }
+      if (guidanceCard._mutationDebounceTimeout) {
+          clearTimeout(guidanceCard._mutationDebounceTimeout);
+          guidanceCard._mutationDebounceTimeout = undefined;
+      }
+      // Remove the card itself
+      if (guidanceCard.parentNode) {
+          guidanceCard.parentNode.removeChild(guidanceCard);
+      }
     }
 
     // Only clean up cursor if explicitly requested

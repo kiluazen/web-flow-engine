@@ -1,7 +1,7 @@
 import { ApiClient } from './apiClient';
 import { StateManager } from './manageState';
 import { CursorFlowUI } from './uiComponents';
-import { CursorFlowOptions, CursorFlowState } from './types';
+import { CursorFlowOptions, CursorFlowState, InteractionData } from './types';
 import { ElementUtils } from './elementUtils';
 import { RobustElementFinder } from './robustElementFinder';
 import { SelectiveDomAnalyzer } from './selectiveDomAnalyzer';
@@ -38,6 +38,8 @@ export default class CursorFlow {
     private operationToken: string = '';
     private invalidationInProgress = false;
     private isDropdownOpen = false;
+    private guidanceCardElement: HTMLElement | null = null;
+    private textPopupElement: HTMLElement | null = null;
   
     constructor(options: CursorFlowOptions) {
       // Initialize with default options
@@ -46,6 +48,7 @@ export default class CursorFlow {
       
       this.options = {
         ...options,
+        apiKey: options.apiKey, // Ensure apiKey is explicitly carried over
         theme: options.theme || {},
         buttonText: 'Co-pilot',
         guidesButtonText: options.guidesButtonText || 'Select Guide',
@@ -55,8 +58,10 @@ export default class CursorFlow {
       console.log('[CURSOR-FLOW-DEBUG] Final options after defaults:', this.options);
       
       // Create API client
-      // this.apiClient = new ApiClient(this.options.apiUrl, this.options.organizationId);
-      this.apiClient = new ApiClient('https://hyphenbox-backend.onrender.com', this.options.organizationId);
+      this.apiClient = new ApiClient(
+        this.options.apiUrl || 'https://hyphenbox-backend.onrender.com', 
+        this.options.apiKey 
+      );
       
       // Initialize empty state
       this.state = {
@@ -950,13 +955,20 @@ export default class CursorFlow {
       this.debugLog(`Playing step ${this.state.currentStep} (Position: ${currentStep.position || 'N/A'})`);
 
       // Find target element from interaction data
-      const interaction = currentStep.interaction || {};
+      const interaction = currentStep.interaction || {}; // interaction object also contains isHighlightStep
       // Ensure interaction text is populated if available in element data
       if (!interaction.text && interaction.element?.textContent) {
           interaction.text = interaction.element.textContent;
       }
       this.debugLog('Interaction data:', JSON.stringify(interaction));
 
+      // Determine if this is a highlight step and if it's the last step
+      const isHighlightStep = !!currentStep.is_highlight_step; // CORRECTED: Access directly from currentStep
+      const isLastStep = this.state.currentStep >= this.sortedSteps.length - 1 || 
+                         (this.sortedSteps.findIndex(step => !this.state.completedSteps.includes(step.position)) === -1 && 
+                         this.sortedSteps.indexOf(currentStep) === this.sortedSteps.length -1 );
+
+      this.debugLog(`Step flags: isHighlightStep=${isHighlightStep}, isLastStep=${isLastStep}`);
 
       // Before we search for elements, check if navigation is expectedx
       const expectedPath = interaction.pageInfo?.path;
@@ -1033,98 +1045,187 @@ export default class CursorFlow {
           return false;
       }
 
-      // --- Proceed with Valid Element ---
+      // ADDED: Scroll into view logic *after* validation, *before* showing visuals
+      try {
+          if (!this.isElementPartiallyInViewport(this.currentTargetElement)) {
+              this.debugLog('[CursorFlow] Target element not in viewport, attempting to scroll...');
+              // Use the helper from RobustElementFinder (keeping it there for now)
+              // Alternatively, implement scroll logic directly in CursorFlowUI or here
+              const scrolledCandidates = await RobustElementFinder.ensureCandidatesInView([this.currentTargetElement]);
+              if (scrolledCandidates.length === 0) {
+                   console.warn('[CursorFlow] Failed to scroll the validated element into view.');
+                   // Decide if this is critical enough to stop
+                   // For now, let's proceed but log the warning. The validation loop might catch issues.
+              } else {
+                   this.debugLog('[CursorFlow] Scroll attempt finished.');
+              }
+
+              // Short delay for scroll settling might still be useful
+              await new Promise(resolve => setTimeout(resolve, 150)); 
+
+              // Re-check connection and visibility after scroll attempt
+              if (!this.currentTargetElement.isConnected) {
+                   this.debugLog('[CursorFlow] CRITICAL: Target element disconnected after scroll attempt!');
+                   this.handleInteractionError(); // Use existing error handler
+                   return false;
+              }
+              // Optionally re-check viewport if needed, but partial visibility check is lenient
+              // if (!this.isElementPartiallyInViewport(this.currentTargetElement)) {
+              //    console.warn('[CursorFlow] Element still not sufficiently visible after scroll.');
+              // }
+          } else {
+              this.debugLog('[CursorFlow] Target element already sufficiently in viewport. No scroll needed.');
+          }
+      } catch (scrollError) {
+           console.error('[CursorFlow] Error during scroll attempt:', scrollError);
+           // Continue execution? Or handle as error? Let's continue for now.
+      }
+      // --- End Scroll Logic ---
+
+      // Proceed ONLY if element is still valid after potential scroll
+      if (!this.currentTargetElement || !this.currentTargetElement.isConnected) {
+           this.debugLog('[CursorFlow] Target element became invalid after scroll checks. Aborting step.');
+           this.handleInteractionError();
+           return false;
+       }
+
       this.debugLog('Successfully identified target element:', this.currentTargetElement.outerHTML.substring(0, 150) + '...');
 
       console.time('Show visual elements');
-      // Pass the current token and the step data to showVisualElements
-      const currentToken = this.operationToken;
-      await this.showVisualElements(this.currentTargetElement, currentStep, currentToken); // Pass currentStep here
+      const currentToken = this.operationToken; 
+      // Pass currentStep.annotation as the displayText argument
+      await this.showVisualElements(this.currentTargetElement, currentStep.interaction, currentStep.annotation || '', isHighlightStep, isLastStep);
       console.timeEnd('Show visual elements');
       
       // Check token again after showing visuals, before setting up interaction
-      if (currentToken !== this.operationToken) {
+      if (this.operationToken !== currentToken) { 
           this.debugLog(`[playCurrentStep] Operation cancelled after showVisualElements. Aborting interaction setup.`);
           // Explicitly clean up visuals shown if cancelled mid-step
           this.hideVisualElements(); 
           return false; 
       }
 
-      console.time('Setup interaction tracking');
-      this.setupElementInteractionTracking(this.currentTargetElement, interaction);
-      console.timeEnd('Setup interaction tracking');
+      if (isHighlightStep) {
+        this.debugLog('[CursorFlow] Setting up highlight step completion (Next/Finish button).');
+        this.setupHighlightStepCompletion(isLastStep);
+      } else {
+        this.debugLog('[CursorFlow] Setting up standard element interaction tracking.');
+        console.time('Setup interaction tracking');
+        this.setupElementInteractionTracking(this.currentTargetElement, interaction);
+        console.timeEnd('Setup interaction tracking');
+      }
 
       // Start the validation loop *after* visuals and tracking are set up
-      this.startValidationLoop();
+      // Only start validation loop for non-highlight steps where element interaction is expected
+      if (!isHighlightStep) {
+        this.startValidationLoop();
+      }
 
       return true;
     }
   
-    private async showVisualElements(targetElement: HTMLElement, stepData: any, token: string) { // Renamed interaction to stepData and updated type
-      if (token !== this.operationToken) {
-        this.debugLog('[CursorFlow] Aborting visual elements due to token mismatch.');
-        return;
-      }
-      
-      if (!targetElement || !targetElement.isConnected) {
-        this.debugLog('[CursorFlow] Aborting visual elements. Target is null or disconnected.');
-        return;
-      }
-      
-      // Get safe text from step data's annotation field
-      let annotationText = '';
-      try {
-        // Access the annotation from the stepData object
-        annotationText = stepData.annotation || ''; 
-      } catch (e) {
-        console.error('[CursorFlow] Error getting annotation text:', e);
-      }
-      
-      // Create cursor element if not exists
-      if (!this.cursorElement) {
-        this.cursorElement = CursorFlowUI.createCursor(this.options.theme || {});
-      }
-      
-      // Create and position highlight using CursorFlowUI
-      if (!this.highlightElement) {
-        this.highlightElement = CursorFlowUI.createHighlight(this.options.theme || {});
-      }
-      
-      // Position the highlight on the element
-      CursorFlowUI.positionHighlightOnElement(targetElement, this.highlightElement);
-      
-      // Position cursor
-      CursorFlowUI.moveCursorToElement(
-        targetElement,
-        this.cursorElement,
-        stepData
-      );
-      
-      // Create and position text popup
-      const textPopup = CursorFlowUI.createTextPopup(annotationText, this.options.theme || {});
-      CursorFlowUI.positionTextPopupNearCursor(this.cursorElement, textPopup);
-      
-      // Add detailed logging of element position when visual elements are shown
-      const rect = targetElement.getBoundingClientRect();
-      const viewportDimensions = {
-          width: window.innerWidth,
-          height: window.innerHeight
-      };
-      this.debugLog('[VISUAL-ELEMENTS] Elements shown for:', {
-          element: targetElement.tagName + (targetElement.id ? '#' + targetElement.id : ''),
-          position: {
-              top: Math.round(rect.top),
-              bottom: Math.round(rect.bottom),
-              left: Math.round(rect.left),
-              right: Math.round(rect.right),
-              inViewport: this.isElementPartiallyInViewport(targetElement)
-          },
-          viewport: viewportDimensions,
-          relativePosition: {
-              percentFromTop: Math.round((rect.top / viewportDimensions.height) * 100) + '%',
-              percentFromLeft: Math.round((rect.left / viewportDimensions.width) * 100) + '%'
-          }
+    private async showVisualElements(
+      targetElement: HTMLElement | null,
+      interactionForContext: InteractionData, // Renamed to avoid confusion, primarily for context/flags
+      displayText: string, // Explicit parameter for display text
+      isHighlightStep: boolean,
+      isLastStep: boolean
+    ): Promise<void> {
+      console.log('[CursorFlow] [VISUAL-ELEMENTS] showVisualElements called with:', {
+        element: targetElement ? `${targetElement.tagName}#${targetElement.id || 'noId'}` : 'null',
+        displayedText: displayText, // Log the actual text being displayed
+        isHighlightStep,
+        isLastStep,
+        theme: this.options.theme
       });
+
+      const existingPopup = document.getElementById('hyphenbox-text-popup');
+      if (existingPopup && existingPopup.parentNode) {
+        existingPopup.parentNode.removeChild(existingPopup);
+      }
+      const existingGuidanceCard = document.getElementById('hyphen-guidance-card');
+      if (existingGuidanceCard && existingGuidanceCard.parentNode) {
+        existingGuidanceCard.parentNode.removeChild(existingGuidanceCard);
+      }
+
+      if (isHighlightStep) {
+        console.log('[CursorFlow] [VISUAL-ELEMENTS] Handling highlight step.');
+
+        if (targetElement && targetElement.isConnected) {
+          if (!this.highlightElement) {
+            this.highlightElement = CursorFlowUI.createHighlight(this.options.theme || {});
+          }
+          if (this.highlightElement && !document.body.contains(this.highlightElement)) {
+              document.body.appendChild(this.highlightElement);
+          }
+          CursorFlowUI.positionHighlightOnElement(targetElement, this.highlightElement);
+          if(this.highlightElement) this.highlightElement.style.display = 'block';
+          console.log('[CursorFlow] [VISUAL-ELEMENTS] Highlight shown for highlight step.');
+        } else {
+          console.log('[CursorFlow] [VISUAL-ELEMENTS] No targetElement or element not connected for highlight step. Skipping highlight.');
+          if (this.highlightElement) {
+            this.highlightElement.style.display = 'none';
+          }
+        }
+
+        // Use displayText for the guidance card
+        this.guidanceCardElement = CursorFlowUI.createGuidanceCard(displayText || 'Please follow the instruction.', isLastStep, this.options.theme || {});
+        if (this.guidanceCardElement) {
+          document.body.appendChild(this.guidanceCardElement); // Append to DOM first
+          // Now call positionGuidanceCard, passing the targetElement (which can be null)
+          CursorFlowUI.positionGuidanceCard(this.guidanceCardElement, targetElement);
+        }
+        console.log('[CursorFlow] [VISUAL-ELEMENTS] Guidance card shown and positioned for highlight step.');
+
+        if (this.cursorElement || document.getElementById('hyphenbox-cursor-wrapper')) { 
+          const cursorWrapper = document.getElementById('hyphenbox-cursor-wrapper');
+          if (cursorWrapper && cursorWrapper.parentNode) {
+              cursorWrapper.parentNode.removeChild(cursorWrapper);
+          }
+          this.cursorElement = null;
+        }
+        console.log('[CursorFlow] [VISUAL-ELEMENTS] Cursor explicitly hidden/removed for highlight step.');
+
+      } else {
+        console.log('[CursorFlow] [VISUAL-ELEMENTS] Handling interactive (non-highlight) step.');
+
+        if (!targetElement || !targetElement.isConnected) {
+          console.warn('[CursorFlow] [VISUAL-ELEMENTS] Target element not found or not connected for interactive step. Aborting visual elements.');
+          CursorFlowUI.cleanupAllUI(true, true);
+          return;
+        }
+
+        if (!this.cursorElement) {
+          this.cursorElement = CursorFlowUI.createCursor(this.options.theme || {});
+        }
+        // Pass interactionForContext for cursor positioning if it contains element details
+        CursorFlowUI.moveCursorToElement(targetElement, this.cursorElement, interactionForContext);
+        if(this.cursorElement) this.cursorElement.style.display = 'block';
+        console.log('[CursorFlow] [VISUAL-ELEMENTS] Cursor shown for interactive step.');
+
+        if (!this.highlightElement) {
+          this.highlightElement = CursorFlowUI.createHighlight(this.options.theme || {});
+        }
+        if (this.highlightElement && !document.body.contains(this.highlightElement)) {
+          document.body.appendChild(this.highlightElement);
+        }
+        CursorFlowUI.positionHighlightOnElement(targetElement, this.highlightElement);
+        if(this.highlightElement) this.highlightElement.style.display = 'block';
+        console.log('[CursorFlow] [VISUAL-ELEMENTS] Highlight shown for interactive step.');
+        
+        // Use displayText for the text popup
+        if (displayText) { 
+          this.textPopupElement = CursorFlowUI.createTextPopup(displayText, this.options.theme || {});
+          if (this.cursorElement && this.textPopupElement) {
+              CursorFlowUI.positionTextPopupNearCursor(this.cursorElement, this.textPopupElement);
+              console.log('[CursorFlow] [VISUAL-ELEMENTS] Text popup shown for interactive step.');
+          } else {
+              console.warn('[CursorFlow] [VISUAL-ELEMENTS] Cursor or text popup element missing for positioning.');
+          }
+        } else {
+          console.log('[CursorFlow] [VISUAL-ELEMENTS] No display text provided for interactive step popup.');
+        }
+      }
     }
   
     private hideVisualElements() {
@@ -1688,7 +1789,8 @@ export default class CursorFlow {
         this.debugLog('playNextStep: Attempting to move to the next step.');
 
         // Hide current visual elements first, but keep the cursor and notifications
-        this.hideVisualElements(); // Use the refactored hide method if available, or CursorFlowUI.cleanupAllUI(true, true);
+        // this.hideVisualElements(); // This was causing issues, cleanupAllUI is better
+        CursorFlowUI.cleanupAllUI(true, true); // Keep cursor and notifications
 
         // Remove existing listeners *before* finding the next step's element
         this.removeExistingListeners();
@@ -1716,6 +1818,71 @@ export default class CursorFlow {
             this.completeGuide();
             return false;
         }
+    }
+
+    private setupHighlightStepCompletion(isLastStep: boolean) {
+      this.removeExistingListeners(); // Clear any other listeners
+
+      if (!this.guidanceCardElement || !document.body.contains(this.guidanceCardElement)) {
+        this.debugLog('[CursorFlow] Guidance card not found or not in DOM for highlight step completion setup.');
+        // Optionally, attempt to re-create or show an error.
+        // For now, just return to prevent errors.
+        return;
+      }
+
+      // Log guidance card structure for debugging
+      this.debugLog(`[CursorFlow] Guidance card HTML for button search: ${this.guidanceCardElement.outerHTML.substring(0, 300)}...`);
+
+      const buttonClassSelector = isLastStep ? '.hyphen-finish-button' : '.hyphen-next-button';
+      let completeButton = this.guidanceCardElement.querySelector(buttonClassSelector) as HTMLElement;
+
+      // Fallback if specific class not found, try the generic CTA class within the card
+      if (!completeButton) {
+        this.debugLog(`[CursorFlow] Button not found with ${buttonClassSelector} in guidance card, trying .hyphen-cta-button`);
+        completeButton = this.guidanceCardElement.querySelector('.hyphen-cta-button') as HTMLElement;
+      }
+
+      if (!completeButton) {
+        this.debugLog('[CursorFlow] Button not found in guidance card using any class selector.');
+        // Log all buttons within the card for detailed debugging
+        const allButtons = this.guidanceCardElement.querySelectorAll('button');
+        this.debugLog(`[CursorFlow] Total buttons found in guidance card: ${allButtons.length}`);
+        if (allButtons.length > 0) {
+          Array.from(allButtons).forEach((btn, i) => {
+            this.debugLog(`[CursorFlow] Guidance Card Button ${i} classes: ${btn.className}, HTML: ${btn.outerHTML.substring(0, 100)}`);
+          });
+        }
+        return;
+      }
+
+      this.debugLog(`[CursorFlow] Found button in guidance card: ${completeButton.className}, text: ${completeButton.textContent}`);
+
+      this.currentListener = (event: Event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        this.debugLog(`[CursorFlow] Guidance card ${isLastStep ? 'Finish' : 'Next'} button clicked.`);
+
+        const currentStep = this.sortedSteps[this.state.currentStep];
+        if (!currentStep) {
+            this.debugLog('[CursorFlow] Error: Current step not found during highlight completion.');
+            this.stop({ message: 'Error processing step.', type: 'error' });
+            return;
+        }
+        const stepIdentifier = currentStep?.position !== undefined ? currentStep.position : this.state.currentStep;
+        this.completeStep(stepIdentifier);
+
+        if (isLastStep) {
+          this.completeGuide();
+        } else {
+          this.playNextStep();
+        }
+      };
+
+      completeButton.addEventListener('click', this.currentListener);
+      this.debugLog(`[CursorFlow] Added click listener to guidance card button: ${completeButton.textContent}`);
+      
+      this.currentInteractionType = 'highlight-step-completion'; 
+      this.currentTargetElement = completeButton; // Track the button for listener removal
     }
 
     // --- NEW Methods for Validation Loop ---
@@ -1825,7 +1992,10 @@ export default class CursorFlow {
             rect.right > -BUFFER                        // Element right is after left edge (with buffer)
         );
         
-        this.debugLog(`[VALIDATION-VIEWPORT] ${element.tagName}#${element.id || 'noId'} position: top=${Math.round(rect.top)}, bottom=${Math.round(rect.bottom)}, left=${Math.round(rect.left)}, right=${Math.round(rect.right)}, isPartiallyVisible=${isPartiallyVisible}, buffer=${BUFFER}px`);
+        // Only log verbosely if debug mode is on
+        if (this.options.debug) {
+            this.debugLog(`[VIEWPORT-CHECK] ${element.tagName}#${element.id || 'noId'} pos: top=${Math.round(rect.top)}, bottom=${Math.round(rect.bottom)}, left=${Math.round(rect.left)}, right=${Math.round(rect.right)}, isPartiallyVisible=${isPartiallyVisible}, buffer=${BUFFER}px`);
+        }
         
         return isPartiallyVisible;
     }
