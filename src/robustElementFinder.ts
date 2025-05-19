@@ -579,4 +579,90 @@ export class RobustElementFinder {
         return document.body;
     }
 
+    // --- ADDED FROM ElementUtils ---
+    static compareUrls(url1: string, url2: string): boolean {
+      if (!url1 || !url2) {
+        console.log('URL COMPARE: One or both URLs are empty', { url1, url2 });
+        return false;
+      }
+      
+      try {
+        // Parse URLs to handle components properly
+        const parseUrl = (url: string) => {
+          try {
+            // Add protocol if missing for URL parsing
+            if (!url.match(/^https?:\/\//)) {
+              url = 'http://' + url;
+            }
+            
+            const parsed = new URL(url);
+            return {
+              hostname: parsed.hostname,
+              pathname: parsed.pathname.replace(/\/\$/, '') || '/', // Remove trailing slash but keep root slash
+              search: parsed.search,
+              hash: parsed.hash
+            };
+          } catch (error) {
+            console.error('Failed to parse URL:', url, error);
+            // Return a fallback structure
+            return {
+              hostname: url.split('/')[0],
+              pathname: '/' + url.split('/').slice(1).join('/'),
+              search: '',
+              hash: ''
+            };
+          }
+        };
+        
+        const parsedUrl1 = parseUrl(url1);
+        const parsedUrl2 = parseUrl(url2);
+        
+        // Debug log
+        console.log('URL COMPARE DETAILS:', {
+          url1: { original: url1, parsed: parsedUrl1 },
+          url2: { original: url2, parsed: parsedUrl2 }
+        });
+        
+        // Special case: If either URL is localhost, only compare paths
+        const isLocalhost1 = parsedUrl1.hostname.includes('localhost') || parsedUrl1.hostname.includes('127.0.0.1');
+        const isLocalhost2 = parsedUrl2.hostname.includes('localhost') || parsedUrl2.hostname.includes('127.0.0.1');
+        
+        // If one is localhost and the other isn't, ignore hostname comparison
+        if (isLocalhost1 || isLocalhost2) {
+          // When using localhost, paths must still match exactly
+          const pathsMatch = parsedUrl1.pathname === parsedUrl2.pathname;
+          console.log('URL COMPARE RESULT (localhost mode):', { 
+            pathsMatch,
+            path1: parsedUrl1.pathname, 
+            path2: parsedUrl2.pathname 
+          });
+          return pathsMatch;
+        }
+        
+        // For non-localhost URLs, compare both hostname and pathname
+        const hostnameMatch = parsedUrl1.hostname.toLowerCase() === parsedUrl2.hostname.toLowerCase();
+        const pathMatch = parsedUrl1.pathname === parsedUrl2.pathname;
+        const result = hostnameMatch && pathMatch;
+        
+        console.log('URL COMPARE RESULT (standard mode):', { 
+          result, 
+          hostnameMatch, 
+          pathMatch,
+          hostname1: parsedUrl1.hostname,
+          hostname2: parsedUrl2.hostname,
+          path1: parsedUrl1.pathname, 
+          path2: parsedUrl2.pathname 
+        });
+        
+        return result;
+      } catch (error) {
+        console.error('Error comparing URLs:', error);
+        
+        // Fallback to simple string comparison if URL parsing fails
+        const fallbackResult = url1.toLowerCase() === url2.toLowerCase();
+        console.log('URL COMPARE FALLBACK RESULT:', fallbackResult);
+        return fallbackResult;
+      }
+    }
+
 } 

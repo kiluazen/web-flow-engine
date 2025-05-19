@@ -1,7 +1,10 @@
-import { ElementUtils } from './elementUtils';
-// import arrowheadSvg from '../assets/arrowhead.svg';
+/*
+This file contains UI components for CursorFlow Execution only.
+Things related to highlgiht, curosr position, tootlip, hihglightBox and notification etc..
+*/
 import crazeArrow from '../assets/arrowhead.svg';
 import hyphenboxSvg from '../assets/hyphenbox.svg';
+import { ThemeOptions, NotificationOptions, ErrorNotificationOptions, RedirectNotificationOptions } from './types';
 
 console.log('[SVG-DEBUG] Loaded hyphenbox SVG:', hyphenboxSvg.substring(0, 100) + '...');
 
@@ -16,36 +19,6 @@ interface EnhancedGuidanceCard extends HTMLElement {
     _observer?: MutationObserver;
     _rAfId?: number;
     _mutationDebounceTimeout?: number;
-}
-
-export interface ThemeOptions {
-  buttonColor?: string;
-  brand_color?: string;
-  cursor_company_label?: string | null;
-  logo_url?: string | null;
-}
-
-export interface NotificationOptions {
-  title?: string;
-  message: string;
-  type: 'info' | 'warning' | 'success' | 'error';
-  autoClose?: number;
-  buttons?: Array<{
-    text: string;
-    onClick: () => void;
-    primary?: boolean;
-  }>;
-}
-
-export interface ErrorNotificationOptions extends NotificationOptions {
-  onRetry?: () => void;
-  onSkip?: () => void;
-  onStop?: () => void;
-}
-
-export interface RedirectNotificationOptions extends NotificationOptions {
-  redirectUrl: string;
-  redirectText?: string;
 }
 
 export class CursorFlowUI {
@@ -296,323 +269,6 @@ export class CursorFlowUI {
     }
     
     return hex;
-  }
-
-  static createGuidesButton(text: string, color: string, onClick: () => void, theme: ThemeOptions = {}): HTMLElement {
-    // For simplicity, reuse the createStartButton method, passing the theme
-    return this.createStartButton(text, color, onClick, theme);
-  }
-
-  static showGuidesDropdown(guides: any[], guideButton: HTMLElement, onSelect: (guideData: any) => void, theme: ThemeOptions = {}): HTMLElement {
-    // Remove any existing dropdown
-    const existingDropdown = document.getElementById('hyphen-guides-dropdown');
-    if (existingDropdown) {
-        existingDropdown.remove();
-    }
-
-    const dropdown = document.createElement('div');
-    dropdown.id = 'hyphen-guides-dropdown';
-    dropdown.className = 'hyphen-dropdown';
-    
-    // Modern styling for dropdown
-    dropdown.style.cssText = `
-        position: fixed;
-        bottom: 80px;
-        left: 20px;
-        width: 320px;
-        max-height: 400px;
-        background-color: #ffffff;
-        border-radius: 16px;
-        box-shadow: 0 4px 24px rgba(0,0,0,0.12);
-        z-index: 10000;
-        overflow: hidden;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        display: flex;
-        flex-direction: column;
-    `;
-    
-    // Create header container with search functionality
-    const headerContainer = document.createElement('div');
-    headerContainer.style.cssText = `
-        border-bottom: 1px solid #f0f0f0;
-    `;
-
-    // Create main header with title and search icon
-    const header = document.createElement('div');
-    header.style.cssText = `
-        padding: 20px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    `;
-
-    const title = document.createElement('span');
-    title.style.cssText = `
-        font-weight: 600;
-        font-size: 16px;
-        color: #1a1a1a;
-    `;
-    title.textContent = 'What can I show you?';
-
-    const searchIcon = document.createElement('div');
-    searchIcon.innerHTML = `
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-        </svg>
-    `;
-    searchIcon.style.cssText = `
-        cursor: pointer;
-        opacity: 0.7;
-        transition: opacity 0.2s;
-    `;
-    searchIcon.addEventListener('mouseover', () => searchIcon.style.opacity = '1');
-    searchIcon.addEventListener('mouseout', () => searchIcon.style.opacity = '0.7');
-
-    header.appendChild(title);
-    header.appendChild(searchIcon);
-    headerContainer.appendChild(header);
-
-    // Create search bar (hidden initially)
-    const searchContainer = document.createElement('div');
-    searchContainer.style.cssText = `
-        padding: 20px;
-        display: none;
-        align-items: center;
-        gap: 12px;
-        border-bottom: 1px solid #f0f0f0;
-    `;
-
-    const backButton = document.createElement('div');
-    backButton.innerHTML = `
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="19" y1="12" x2="5" y2="12"></line>
-            <polyline points="12 19 5 12 12 5"></polyline>
-        </svg>
-    `;
-    backButton.style.cssText = `
-        cursor: pointer;
-        opacity: 0.7;
-        transition: opacity 0.2s;
-    `;
-
-    const searchInput = document.createElement('input');
-    searchInput.type = 'text';
-    searchInput.placeholder = 'Search guides...';
-    searchInput.style.cssText = `
-        flex: 1;
-        padding: 8px 12px;
-        border: 1px solid #e0e0e0;
-        border-radius: 6px;
-        font-size: 14px;
-        outline: none;
-        transition: border-width 0.2s, border-color 0.2s;
-        caret-color: #666;
-    `;
-    searchInput.addEventListener('focus', () => {
-        searchInput.style.borderWidth = '1.5px';
-        searchInput.style.borderColor = '#666';
-    });
-    searchInput.addEventListener('blur', () => {
-        searchInput.style.borderWidth = '1px';
-        searchInput.style.borderColor = '#e0e0e0';
-    });
-
-    searchContainer.appendChild(backButton);
-    searchContainer.appendChild(searchInput);
-    headerContainer.appendChild(searchContainer);
-
-    dropdown.appendChild(headerContainer);
-    
-    // Create content area
-    const content = document.createElement('div');
-    content.style.cssText = `
-        max-height: 320px;
-        overflow-y: auto;
-        padding: 8px 0;
-        flex: 1;
-    `;
-
-    const renderGuides = (guidesToRender: any[]) => {
-        content.innerHTML = '';
-        if (!guidesToRender || guidesToRender.length === 0) {
-            const noGuides = document.createElement('div');
-            noGuides.style.cssText = `
-                padding: 16px 20px;
-                color: #666;
-                font-style: italic;
-                font-size: 14px;
-            `;
-            noGuides.textContent = 'No guides available';
-            content.appendChild(noGuides);
-        } else {
-            guidesToRender.forEach(guide => {
-                const item = document.createElement('div');
-                item.className = 'hyphen-dropdown-item';
-                item.style.cssText = `
-                    padding: 12px 20px;
-                    cursor: pointer;
-                    transition: all 0.2s ease;
-                    color: #1a1a1a;
-                    font-size: 14px;
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                `;
-                
-                item.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 5l7 7-7 7"></path>
-                        <path d="M5 12h14"></path>
-                    </svg>
-                    <span>${guide.name}</span>
-                `;
-                
-                item.addEventListener('mouseover', () => {
-                    item.style.backgroundColor = '#f8f8f8';
-                });
-                
-                item.addEventListener('mouseout', () => {
-                    item.style.backgroundColor = '';
-                });
-                
-                item.addEventListener('click', (event) => {
-                    event.stopPropagation();
-                    onSelect(guide);
-                    if (document.body.contains(dropdown)) {
-                        document.body.removeChild(dropdown);
-                    }
-                });
-                
-                content.appendChild(item);
-            });
-        }
-    };
-
-    // Initial render
-    renderGuides(guides);
-
-    // Add search functionality
-    let isSearchMode = false;
-    searchIcon.addEventListener('click', () => {
-        isSearchMode = true;
-        header.style.display = 'none';
-        searchContainer.style.display = 'flex';
-        searchInput.focus();
-    });
-
-    backButton.addEventListener('click', () => {
-        isSearchMode = false;
-        header.style.display = 'flex';
-        searchContainer.style.display = 'none';
-        searchInput.value = '';
-        renderGuides(guides);
-    });
-
-    // Add search input handler with debounce
-    let debounceTimeout: number | null = null;
-    searchInput.addEventListener('input', (e) => {
-        if (debounceTimeout) {
-            clearTimeout(debounceTimeout);
-        }
-        debounceTimeout = window.setTimeout(() => {
-            const query = (e.target as HTMLInputElement).value.toLowerCase();
-            const filteredGuides = guides.filter(guide => 
-                guide.name.toLowerCase().includes(query) || 
-                (guide.description && guide.description.toLowerCase().includes(query))
-            );
-            renderGuides(filteredGuides);
-        }, 300);
-    });
-
-    dropdown.appendChild(content);
-    
-    // Add footer with "powered by" and logo
-    console.log('[FOOTER-DEBUG] Creating footer with Hyphenbox logo.');
-    const footer = document.createElement('div');
-    footer.style.cssText = `
-        padding: 12px 20px;
-        border-top: 1px solid #f0f0f0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 4px;
-        color: #666;
-        font-size: 12px;
-        background: #fafafa;
-        line-height: 1;
-    `;
-    
-    const poweredByText = document.createElement('span');
-    poweredByText.textContent = 'powered by';
-    poweredByText.style.cssText = `
-        opacity: 0.7;
-        display: flex;
-        align-items: center;
-        height: 18px;
-    `;
-    
-    const logoContainer = document.createElement('div');
-    logoContainer.style.cssText = `
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        height: 18px;
-        width: 55px; // Maintain width for layout consistency
-        position: relative;
-        transform: translateY(1px);
-    `;
-    
-    // Always use imported hyphenboxSvg for the footer
-    logoContainer.innerHTML = hyphenboxSvg;
-    const svg = logoContainer.querySelector('svg');
-    if (svg) {
-        console.log('[FOOTER-DEBUG] Adjusting Hyphenbox SVG properties');
-        svg.style.cssText = `
-            width: 100%;
-            height: 100%;
-            opacity: 0.7;
-            display: block;
-            transition: opacity 0.2s ease; /* Add hover effect */
-        `;
-        svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-        svg.setAttribute('viewBox', '0 0 3163 849');
-        // Add hover effect directly to SVG
-        svg.addEventListener('mouseover', () => { svg.style.opacity = '1'; });
-        svg.addEventListener('mouseout', () => { svg.style.opacity = '0.7'; });
-    } else {
-        console.warn('[FOOTER-DEBUG] Hyphenbox SVG element not found in container.');
-    }
-    
-    footer.appendChild(poweredByText);
-    footer.appendChild(logoContainer);
-    
-    dropdown.appendChild(footer);
-    document.body.appendChild(dropdown);
-
-    // Add smooth entrance animation
-    dropdown.animate([
-        { opacity: 0, transform: 'translateY(10px)' },
-        { opacity: 1, transform: 'translateY(0)' }
-    ], {
-        duration: 200,
-        easing: 'ease-out'
-    });
-    
-    // Handle outside clicks
-    const handleOutsideClick = (event: MouseEvent) => {
-        if (!dropdown.contains(event.target as Node) && 
-            event.target !== guideButton) {
-            dropdown.remove();
-            document.removeEventListener('click', handleOutsideClick);
-        }
-    };
-    
-    setTimeout(() => {
-        document.addEventListener('click', handleOutsideClick);
-    }, 0);
-    
-    return dropdown;
   }
 
   static createCursor(theme: ThemeOptions, isThinking: boolean = false): HTMLElement {
@@ -1900,35 +1556,6 @@ export class CursorFlowUI {
     console.log('[CLEANUP-DEBUG] UI elements cleaned up', keepCursor ? '(keeping cursor)' : '(including cursor)', keepNotifications ? '(keeping notifications)' : '(including notifications)');
   }
 
-  static showRedirectNotification(options: RedirectNotificationOptions): HTMLElement {
-    // Create buttons array with redirect button
-    const buttons = [
-      {
-        text: options.redirectText || 'Go to page',
-        onClick: () => {
-          window.location.href = options.redirectUrl;
-        },
-        primary: true
-      },
-      ...(options.buttons || [])
-    ];
-    
-    // Create a notification with the redirect button
-    return this.showNotification({
-      ...options,
-      buttons
-    });
-  }
-
-  // Add a more efficient cleanup method that keeps elements but hides them
-  static hideGuidanceElements(): void {
-    const container = document.querySelector('.hyphen-guidance-container') as HTMLElement;
-    if (container) {
-      // Hide instead of removing
-      container.style.display = 'none';
-    }
-  }
-
   // Add this as a new method in the CursorFlowUI class
   static detectAndLogPortals(): { 
     portals: HTMLElement[], 
@@ -1994,43 +1621,6 @@ export class CursorFlowUI {
     }
     
     return { portals, modals, activeModal };
-  }
-
-  static async handleMantineFormTransition(buttonText: string, inputPlaceholder: string): Promise<HTMLElement | null> {
-    console.log(`[MANTINE-HANDLER] Handling form transition for button "${buttonText}" and input "${inputPlaceholder}"`);
-    
-    // First wait for any portal animations to complete
-    await ElementUtils.waitForPortalStability();
-    
-    // After portal has stabilized, find the input element
-    let inputElement = null;
-    let attempts = 0;
-    const MAX_ATTEMPTS = 10;
-    
-    while (!inputElement && attempts < MAX_ATTEMPTS) {
-      attempts++;
-      console.log(`[MANTINE-HANDLER] Attempt ${attempts} to find input`);
-      
-      // Use the specialized finder
-      inputElement = ElementUtils.findMantineInput(inputPlaceholder);
-      
-      if (!inputElement) {
-        // Wait a bit before trying again
-        await new Promise(resolve => setTimeout(resolve, 150));
-      }
-    }
-    
-    if (inputElement) {
-      console.log('[MANTINE-HANDLER] Successfully found input element:', {
-        id: inputElement.id,
-        classes: inputElement.className,
-        rect: inputElement.getBoundingClientRect()
-      });
-    } else {
-      console.log('[MANTINE-HANDLER] Failed to find input element after all attempts');
-    }
-    
-    return inputElement;
   }
 
   // Add a new method to show thinking indicator
@@ -2121,17 +1711,24 @@ export class CursorFlowUI {
       }
     };
   }
-}
 
-// Helper function to adjust color brightness
-function adjustColor(color: string, amount: number): string {
-  try {
-    // Simple algorithm to darken/lighten hex color
-    return color.replace(/^#/, '').replace(/.{2}/g, (c) => {
-      const newC = Math.max(0, Math.min(255, parseInt(c, 16) + amount));
-      return newC.toString(16).padStart(2, '0');
+  static showRedirectNotification(options: RedirectNotificationOptions): HTMLElement {
+    // Create buttons array with redirect button
+    const buttons = [
+      {
+        text: options.redirectText || 'Go to page',
+        onClick: () => {
+          window.location.href = options.redirectUrl;
+        },
+        primary: true
+      },
+      ...(options.buttons || [])
+    ];
+    
+    // Create a notification with the redirect button
+    return this.showNotification({
+      ...options,
+      buttons
     });
-  } catch (e) {
-    return color;
   }
 }

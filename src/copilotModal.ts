@@ -1,6 +1,7 @@
 import { ApiClient } from './apiClient';
-import {ThemeOptions } from './uiComponents'; // Keep this for footer and maybe button positioning
+import { ThemeOptions } from './types'; // Import from types.ts instead of uiComponents.ts
 import hyphenboxSvg from '../assets/hyphenbox.svg'; // Import the SVG
+import { OnboardingModal } from './onboardingChecklist';
 
 export class CopilotModal {
     private static activeModal: HTMLElement | null = null;
@@ -13,11 +14,62 @@ export class CopilotModal {
     private static allGuides: any[] = []; // Cache guides
     private static loadingDotsStyleAdded: boolean = false; // Ensure style is added only once
 
-    static init(apiClient: ApiClient, onGuideFound: (guideId: string) => void, /* onViewAllGuides: () => void, */ theme: ThemeOptions) {
+    static init(
+        apiClient: ApiClient, 
+        onGuideFound: (guideId: string) => void,
+        theme: ThemeOptions = {}
+    ) {
         this.apiClient = apiClient;
         this.onGuideFound = onGuideFound;
-        // this.onViewAllGuides = onViewAllGuides; // No longer needed
         this.theme = theme;
+    }
+
+    /**
+     * Create a button to show the copilot modal
+     */
+    static createCopilotButton(container: HTMLElement, buttonText: string = 'Help & Guides', customClass?: string): HTMLButtonElement {
+        const button = document.createElement('button');
+        button.textContent = buttonText;
+        button.className = customClass || 'hyphen-copilot-button';
+        
+        if (!customClass) {
+            button.style.cssText = `
+                background-color: ${this.theme?.buttonColor || '#007bff'};
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-size: 14px;
+                font-weight: 500;
+                cursor: pointer;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                transition: background-color 0.2s ease, transform 0.1s ease;
+            `;
+            
+            button.addEventListener('mouseover', () => {
+                button.style.backgroundColor = this.adjustColor(this.theme?.buttonColor || '#007bff', -20);
+            });
+            
+            button.addEventListener('mouseout', () => {
+                button.style.backgroundColor = this.theme?.buttonColor || '#007bff';
+            });
+            
+            button.addEventListener('mousedown', () => {
+                button.style.transform = 'scale(0.98)';
+            });
+            
+            button.addEventListener('mouseup', () => {
+                button.style.transform = 'scale(1)';
+            });
+        }
+        
+        button.addEventListener('click', () => {
+            this.showSearchModal();
+        });
+        
+        container.appendChild(button);
+        return button;
     }
 
     static showSearchModal() {
@@ -175,8 +227,14 @@ export class CopilotModal {
             align-items: center;
             justify-content: center;
         `;
-        searchButton.addEventListener('mouseover', () => { searchButton.style.backgroundColor = '#eee'; searchButton.style.borderColor = '#ccc'; });
-        searchButton.addEventListener('mouseout', () => { searchButton.style.backgroundColor = '#f8f8f8'; searchButton.style.borderColor = '#e0e0e0'; });
+        searchButton.addEventListener('mouseover', () => { 
+            searchButton.style.backgroundColor = '#eee'; 
+            searchButton.style.borderColor = '#ccc';
+        });
+        searchButton.addEventListener('mouseout', () => { 
+            searchButton.style.backgroundColor = '#f8f8f8'; 
+            searchButton.style.borderColor = '#e0e0e0'; 
+        });
         searchButton.addEventListener('click', () => this.handleSearch(input.value));
 
         // Add Enter key listener to input
@@ -374,7 +432,7 @@ export class CopilotModal {
 
 
     // --- NEW: Method to create the footer based on view ---
-    private static createFooter(view: 'search' | 'list'): HTMLElement {
+    private static createFooter(view: 'search' | 'list' | 'onboarding'): HTMLElement {
         const footerArea = document.createElement('div');
         footerArea.style.cssText = `
             display: flex;
@@ -385,10 +443,15 @@ export class CopilotModal {
             margin-top: 16px; /* Consistent margin */
         `;
 
-        // Left side: 'View All Guides' button (only in search view) or empty placeholder
+        // Left side: buttons container
         const leftSide = document.createElement('div');
-        leftSide.style.minWidth = '100px'; // Reserve space
+        leftSide.style.cssText = `
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        `;
 
+        // 'View All Guides' button (only in search view)
         if (view === 'search') {
             const allGuidesButton = document.createElement('button');
             allGuidesButton.textContent = 'View All Guides';
@@ -415,6 +478,44 @@ export class CopilotModal {
                 // Don't close modal here
             });
             leftSide.appendChild(allGuidesButton);
+            
+            // Add Onboarding button (only in search view)
+            const onboardingButton = document.createElement('button');
+            onboardingButton.textContent = 'Onboarding';
+            onboardingButton.style.cssText = `
+                background: none;
+                border: none;
+                color: #555;
+                font-size: 13px;
+                cursor: pointer;
+                padding: 5px;
+                text-decoration: underline;
+                transition: color 0.2s;
+            `;
+            onboardingButton.addEventListener('mouseover', () => onboardingButton.style.color = '#111');
+            onboardingButton.addEventListener('mouseout', () => onboardingButton.style.color = '#555');
+            onboardingButton.addEventListener('click', () => {
+                // Don't close the modal, instead render onboarding view in this modal
+                console.log('[CopilotModal] Onboarding button clicked, switching to onboarding view');
+                const modalContent = document.getElementById('hyphen-modal-content');
+                if (modalContent) {
+                    // Show loading state while we fetch onboarding data
+                    this.renderOnboardingLoadingState(modalContent);
+                    
+                    // Call OnboardingModal to render in our container
+                    if (this.apiClient) {
+                        OnboardingModal.renderInExistingModal(modalContent, () => {
+                            // Back function - return to search view
+                            this.renderSearchView(modalContent);
+                        });
+                    } else {
+                        console.error("[CopilotModal] API client not initialized for onboarding view");
+                    }
+                } else {
+                    console.error("[CopilotModal] Could not find modal content container to render onboarding view.");
+                }
+            });
+            leftSide.appendChild(onboardingButton);
         }
 
         // Right side: Powered by
@@ -677,5 +778,79 @@ export class CopilotModal {
         } else {
              console.warn('[Hyphen CopilotModal] Fallback SVG element not found in container.');
         }
+    }
+
+    // NEW: Method to show loading state for onboarding content
+    private static renderOnboardingLoadingState(container: HTMLElement) {
+        container.innerHTML = ''; // Clear previous content
+        
+        // Title
+        const title = document.createElement('h2');
+        title.textContent = 'Onboarding';
+        title.style.cssText = `
+            margin: 0 0 16px 0;
+            font-size: 20px;
+            font-weight: 600;
+            color: #1a1a1a;
+            text-align: center;
+        `;
+        
+        // Back button to return to search
+        const headerDiv = document.createElement('div');
+        headerDiv.style.cssText = `
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+        `;
+        
+        const backButton = document.createElement('button');
+        backButton.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>`;
+        backButton.setAttribute('aria-label', 'Back to search');
+        backButton.style.cssText = `
+            background: none;
+            border: none;
+            padding: 5px;
+            cursor: pointer;
+            color: #555;
+            display: flex;
+            align-items: center;
+        `;
+        backButton.addEventListener('click', () => {
+            const modalContent = document.getElementById('hyphen-modal-content');
+            if (modalContent) {
+                this.renderSearchView(modalContent);
+            }
+        });
+        
+        headerDiv.appendChild(backButton);
+        headerDiv.appendChild(title);
+        
+        // Loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.style.cssText = `
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            color: #888;
+            min-height: 100px;
+            margin: 20px 0;
+        `;
+        loadingDiv.innerHTML = `
+            <span>Loading onboarding checklists</span>
+            <span class="copilot-loading-dots"><span>.</span><span>.</span><span>.</span></span>
+        `;
+        
+        // Footer
+        const footer = this.createFooter('onboarding');
+        
+        // Assemble content
+        container.appendChild(headerDiv);
+        container.appendChild(loadingDiv);
+        container.appendChild(footer);
     }
 } 

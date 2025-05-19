@@ -1,26 +1,21 @@
 import { ApiClient } from './apiClient';
 import { StateManager } from './manageState';
 import { CursorFlowUI } from './uiComponents';
-import { CursorFlowOptions, CursorFlowState, InteractionData } from './types';
-import { ElementUtils } from './elementUtils';
+import { CursorFlowOptions, CursorFlowState, InteractionData, NotificationType, StopNotificationOptions } from './types';
 import { RobustElementFinder } from './robustElementFinder';
 import { SelectiveDomAnalyzer } from './selectiveDomAnalyzer';
 import { CopilotModal } from './copilotModal';
+import { FlowExecutionTracker } from './flowExecutionTracker';
 
-
-// Add type definition for notification options
-type NotificationType = 'warning' | 'info' | 'success' | 'error';
-interface StopNotificationOptions {
-    message: string;
-    type: NotificationType;
-    autoClose?: number;
-}
+// Define API URL as a constant - this is the same for all instances
+const API_URL = 'https://hyphenbox-backend.onrender.com';
 
 export default class CursorFlow {
     // Properties
     private options: CursorFlowOptions;
     private apiClient: ApiClient;
     private state: CursorFlowState;
+    private executionTracker: FlowExecutionTracker;
     private cursorElement: HTMLElement | null = null;
     private highlightElement: HTMLElement | null = null;
     private currentTargetElement: HTMLElement | null = null;
@@ -46,9 +41,16 @@ export default class CursorFlow {
       console.log('[CURSOR-FLOW-DEBUG] Initializing with options:', options);
       console.log('[CURSOR-FLOW-DEBUG] Original buttonText:', options.buttonText);
       
+      // Ensure userId is provided
+      if (!options.userId) {
+        console.error('[CURSOR-FLOW-DEBUG] ERROR: userId is required but was not provided');
+        throw new Error('userId is required for CursorFlow initialization');
+      }
+      
       this.options = {
         ...options,
         apiKey: options.apiKey, // Ensure apiKey is explicitly carried over
+        userId: options.userId, // Ensure userId is explicitly carried over
         theme: options.theme || {},
         buttonText: 'Co-pilot',
         guidesButtonText: options.guidesButtonText || 'Select Guide',
@@ -57,11 +59,19 @@ export default class CursorFlow {
       
       console.log('[CURSOR-FLOW-DEBUG] Final options after defaults:', this.options);
       
-      // Create API client
-      this.apiClient = new ApiClient(
-        this.options.apiUrl || 'https://hyphenbox-backend.onrender.com', 
-        this.options.apiKey 
-      );
+      // Use provided ApiClient if available, otherwise create a new one
+      if (options.apiClient) {
+        console.log('[CURSOR-FLOW-DEBUG] Using provided ApiClient');
+        this.apiClient = options.apiClient;
+      } else {
+        console.log('[CURSOR-FLOW-DEBUG] Creating new ApiClient');
+        // Create API client with userId - use the fixed API_URL
+        this.apiClient = new ApiClient(
+          API_URL, 
+          this.options.apiKey,
+          this.options.userId
+        );
+      }
       
       // Initialize empty state
       this.state = {
@@ -71,6 +81,9 @@ export default class CursorFlow {
         completedSteps: [],
         timestamp: Date.now()
       };
+      
+      // Initialize flow execution tracker
+      this.executionTracker = new FlowExecutionTracker(this.apiClient);
       
       if (this.options.debug) {
         console.log('CursorFlow initialized with options:', this.options);
@@ -268,13 +281,6 @@ export default class CursorFlow {
             CopilotModal.showSearchModal();
         }
     }
-    // --- End Button Creation/Finding ---
-    
-    private toggleGuideState() {
-      // This method is now effectively replaced by handleToggleClick's logic
-      // Keeping it just in case, but it directly calls the new logic.
-      this.handleToggleClick(); 
-    }
   
     private updateButtonState() {
       // Add robustness check
@@ -323,70 +329,19 @@ export default class CursorFlow {
       if (this.options.debug) {
         console.log('Attempting to start guide selection process...');
       }
-       // This is now handled by the dropdown selection flow
-       this.showGuidesDropdown(); // OR CopilotModal.showSearchModal() if default is search
+       // Use CopilotModal instead of the old dropdown
+       CopilotModal.showSearchModal();
     }
   
     private showGuidesDropdown() {
       if (!this.startButton) return;
       
-      // Toggle dropdown state
-      if (this.isDropdownOpen) {
-        // If dropdown is open, close it
-        const dropdown = document.getElementById('hyphen-guides-dropdown');
-        if (dropdown) {
-          dropdown.remove();
-        }
-        this.isDropdownOpen = false;
-        this.debugLog('Guides dropdown closed.');
-        return;
-      }
+      // Use the new CopilotModal instead of the old dropdown UI
+      CopilotModal.showSearchModal();
+      this.debugLog('Showing guide selection modal.');
       
-      // --- Fetch guides only if needed and not already fetched ---
-      const fetchAndShow = async () => {
-          if (this.guides.length === 0) {
-             this.debugLog('No guides loaded, fetching...');
-             await this.fetchGuides();
-          }
-          
-          if (this.guides.length === 0) {
-             console.warn('No guides available after fetch.');
-             // Show a notification? For now, just don't open dropdown.
-             return;
-          }
-          
-          this.debugLog('Showing guides dropdown.');
-          // Create and show dropdown
-          CursorFlowUI.showGuidesDropdown(
-            this.guides, 
-            this.startButton!,
-            (guideData) => {
-              // Mark dropdown as closed when a guide is selected
-              this.isDropdownOpen = false;
-              this.debugLog('Guide selected from dropdown:', guideData);
-              
-              // IMPORTANT: Generate a new operation token to cancel any in-flight operations
-              this.operationToken = this.generateToken();
-              const currentToken = this.operationToken;
-              
-              // Set playing state via the setter
-              this.setIsPlaying(true);
-              
-              // Show thinking indicator
-              if (this.startButton) {
-                this.thinkingIndicator = CursorFlowUI.showThinkingIndicator(this.startButton, this.options.theme || {});
-              }
-              
-              // Start loading the guide, passing the current token
-              this.retrieveGuideData(guideData.id, currentToken);
-            },
-            this.options.theme || {}
-          );
-          // Mark dropdown as open
-          this.isDropdownOpen = true;
-      };
-      
-      fetchAndShow();
+      // No longer tracking isDropdownOpen since modal has its own state management
+      this.isDropdownOpen = false;
     }
   
     private async retrieveGuideData(guideId: string, token: string) {
@@ -482,7 +437,7 @@ export default class CursorFlow {
           const redirectUrl = stepUrl || (stepPath ? stepPath : null);
           
           // Check URL matching - use URL first, then fall back to path
-          const isUrlMatch = stepUrl ? ElementUtils.compareUrls(stepUrl, window.location.href) : false;
+          const isUrlMatch = stepUrl ? RobustElementFinder.compareUrls(stepUrl, window.location.href) : false;
           const isPathMatch = stepPath ? window.location.pathname === stepPath : false;
           
           this.debugLog('URL CHECK DETAILS:', { 
@@ -569,84 +524,46 @@ export default class CursorFlow {
         }
       }
     }
-  
-    private showFirstStepDemo(firstStepData: any) {
-      // Create cursor and text popup elements if not already created
-      if (!this.cursorElement) {
-        this.cursorElement = CursorFlowUI.createCursor(this.options.theme || {});
-      }
-      
-      // Create text popup with the instruction
-      const textPopup = CursorFlowUI.createTextPopup(
-        firstStepData.popupText || "Click here",
-        this.options.theme || {}
-      );
-      
-      // For demo purposes, create a meaningful interaction object based on the step text
-      const popupText = firstStepData.popupText || '';
-      this.debugLog('Step instruction:', popupText);
-      
-      // Extract what to look for from the popup text
-      let elementText = '';
-      
-      if (popupText.includes('Writing link')) {
-        elementText = 'Writing';
-      } else if (popupText.includes('Examples of Deep Focus')) {
-        elementText = 'Examples of Deep Focus';
-      } else if (popupText.includes('Podcasts section')) {
-        elementText = 'Podcasts';
-      } else {
-        // Generic fallback
-        elementText = popupText.replace(/Click on /i, '').replace(/Navigate to /i, '');
-      }
-      
-      const interaction = {
-        text: elementText,
-        action: "click"
-      };
-      
-      this.debugLog('Looking for element with text:', elementText);
-      
-      // Find the target element
-      this.currentTargetElement = ElementUtils.findElementFromInteraction(interaction, false);
-      
-      if (this.currentTargetElement) {
-        this.debugLog('Found target element:', this.currentTargetElement);
-        
-        // Move cursor to the element
-        CursorFlowUI.moveCursorToElement(
-          this.currentTargetElement, 
-          this.cursorElement, 
-          interaction
-        );
-        
-        // Position the text popup near the cursor
-        CursorFlowUI.positionTextPopupNearCursor(this.cursorElement, textPopup);
-        
-        // Highlight the target element
-        this.highlightElement = CursorFlowUI.createHighlight(this.options.theme || {});
-        this.positionHighlightOnElement(this.currentTargetElement, this.highlightElement);
-        
-        if (this.options.debug) {
-          this.debugLog('Demo: Showing cursor and text for first step');
-        }
-      } else {
-        console.warn('Could not find target element for first step');
-      }
-    }
-  
-    private positionHighlightOnElement(element: HTMLElement, highlight: HTMLElement | null) {
-      if (!highlight || !element) return;
-      
-      // Delegate positioning to CursorFlowUI
-      CursorFlowUI.positionHighlightOnElement(element, highlight);
-    }
-  
+
     stop(notificationOptions?: StopNotificationOptions) {
       // Generate a new token FIRST to cancel any in-flight operations
       const oldToken = this.operationToken;
       this.operationToken = this.generateToken();
       this.debugLog(`[STOP CALLED] Invalidating token ${oldToken}, new token ${this.operationToken}`);
+      
+      // Track abandonment if this is a stop during an active flow (not a completion)
+      const wasPlaying = this.state.isPlaying;
+      const flowId = this.state.recordingId;
+      
+      if (wasPlaying && flowId && this.executionTracker.isActive()) {
+        // Determine abandonment reason based on notification type
+        let abandonReason: 'user_initiated' | 'element_not_found' | 'sdk_error' | 'navigation' = 'user_initiated';
+        let details = 'User stopped the guide';
+        
+        if (notificationOptions) {
+          if (notificationOptions.type === 'error') {
+            if (notificationOptions.message?.includes('element')) {
+              abandonReason = 'element_not_found';
+              details = notificationOptions.message || 'Failed to find element';
+            } else {
+              abandonReason = 'sdk_error';
+              details = notificationOptions.message || 'SDK error occurred';
+            }
+          } else if (notificationOptions.message?.includes('navigation') || notificationOptions.message?.includes('navigate')) {
+            abandonReason = 'navigation';
+            details = notificationOptions.message || 'User navigated away';
+          }
+        }
+        
+        // Only record abandonment for actual stops, not completions
+        if (!(notificationOptions?.type === 'success' && notificationOptions?.message?.includes('completed'))) {
+          this.executionTracker.trackAbandonment(abandonReason, details)
+            .catch(error => {
+              console.warn(`Failed to track flow abandonment: ${error}`);
+              // Continue with stop even if tracking fails
+            });
+        }
+      }
       
       // Set isPlaying to false using the setter (immediate save for cleanup)
       this.setIsPlaying(false, true); 
@@ -802,6 +719,19 @@ export default class CursorFlow {
           this.debugLog('Recording already loaded.');
         }
         
+        // Start tracking flow execution
+        try {
+          const trackingStarted = await this.executionTracker.trackStart(guideId);
+          if (trackingStarted) {
+            this.debugLog(`Flow execution tracking started for flow ${guideId}`);
+          } else {
+            this.debugLog(`Failed to start flow execution tracking for flow ${guideId}, but continuing with guide`);
+          }
+        } catch (trackingError) {
+          console.error('Error starting flow execution tracking:', trackingError);
+          // Continue with guide execution even if tracking fails
+        }
+        
         // Set session active
         StateManager.setSessionActive();
         
@@ -849,7 +779,7 @@ export default class CursorFlow {
         const stepPath = pageInfo?.path;
         
         // Check for matches - simplified logic
-        const urlMatches = stepUrl ? ElementUtils.compareUrls(stepUrl, currentUrl) : false;
+        const urlMatches = stepUrl ? RobustElementFinder.compareUrls(stepUrl, currentUrl) : false;
         const pathMatches = stepPath === currentPath;
         
         // Return true if either URL or path matches
@@ -1465,6 +1395,18 @@ export default class CursorFlow {
                 this.hideVisualElements();
                 console.log('handleNavigation: Cleaned up visuals before showing navigation error');
                 
+                // Track navigation abandonment if we're actively tracking
+                if (this.executionTracker.isActive() && this.state.recordingId) {
+                  const currentUrl = window.location.href;
+                  this.executionTracker.trackAbandonment(
+                    'navigation',
+                    `User navigated away from guide path to ${currentUrl}`
+                  ).catch(error => {
+                    console.warn(`Failed to track navigation abandonment: ${error}`);
+                    // Continue with stop even if tracking fails
+                  });
+                }
+                
                 // Show notification 
                 CursorFlowUI.showNotification({
                     message: 'Oops! You\'ve navigated away from the guide path',
@@ -1544,6 +1486,12 @@ export default class CursorFlow {
               const stepIndex = currentStep?.position !== undefined ? currentStep.position : this.state.currentStep;
 
               this.debugLog(`Marking step completed: Index=${this.state.currentStep}, Position=${stepIndex}`);
+              
+              // Track step completion via the FlowExecutionTracker 
+              if (currentStep && currentStep.id && this.executionTracker.isActive()) {
+                this.debugLog(`Tracking completion of step ID=${currentStep.id}, Position=${stepIndex}`);
+              }
+              
               this.completeStep(stepIndex); // Pass the correct identifier
 
                // If this interaction causes navigation (e.g., clicking a link/button that changes URL)
@@ -1688,6 +1636,23 @@ export default class CursorFlow {
         // this.currentTargetElement = null; // Don't nullify currentTargetElement here, it's needed elsewhere
     }
     private handleInteractionError() {
+      // Get current step information for tracking
+      const currentStepIndex = this.state.currentStep;
+      const currentStepInfo = this.sortedSteps[currentStepIndex];
+      
+      // Track element not found error if we're actively tracking and not immediately retrying
+      if (this.executionTracker.isActive() && this.state.recordingId) {
+        const stepDetails = currentStepInfo 
+          ? `Step ${currentStepIndex} (position: ${currentStepInfo.position})`
+          : `Step ${currentStepIndex}`;
+          
+        // We don't call trackAbandonment here because the user might choose to retry or skip
+        // The actual abandonment will be tracked if/when stop() is called
+        
+        // Log the error to console for debugging
+        this.debugLog(`Interaction error at ${stepDetails}: Element not found or not interactive`);
+      }
+      
       CursorFlowUI.showErrorNotification(
         'We couldn\'t find the element for this step.',
         {
@@ -1695,7 +1660,10 @@ export default class CursorFlow {
           type: 'error',
           onRetry: () => this.playCurrentStep(),
           onSkip: () => this.playNextStep(),
-          onStop: () => this.stop()
+          onStop: () => this.stop({
+            message: 'Element not found for step. Guide stopped.',
+            type: 'error'
+          })
         }
       );
     }
@@ -1740,6 +1708,15 @@ export default class CursorFlow {
         console.warn('Failed to clear redirect guide ID on completion:', err);
       }
       
+      // Track successful completion of the flow
+      if (this.executionTracker.isActive()) {
+        this.executionTracker.trackCompletion()
+          .catch(error => {
+            console.warn(`Failed to track flow completion: ${error}`);
+            // Continue with guide completion even if tracking fails
+          });
+      }
+      
       // Stop the guide
       this.stop({
         message: 'Guide completed successfully!',
@@ -1772,6 +1749,20 @@ export default class CursorFlow {
       if (!this.state.completedSteps.includes(stepIdentifier)) {
         this.state.completedSteps.push(stepIdentifier);
         StateManager.saveWithDebounce(this.state); // Debounced save
+        
+        // Track step completion
+        if (this.state.recordingId && this.executionTracker.isActive()) {
+          // Get the current step from sortedSteps to find its step ID
+          const currentStep = this.sortedSteps.find(step => step.position === stepIdentifier);
+          if (currentStep && currentStep.id) {
+            this.executionTracker.trackStepCompletion(currentStep.id, stepIdentifier)
+              .catch(error => {
+                console.warn(`Failed to track step completion: ${error}`);
+                // Continue guide execution even if tracking fails
+              });
+          }
+        }
+        
         if (this.options.debug) {
           this.debugLog(`Step completed (ID/Pos: ${stepIdentifier}). Completed: [${this.state.completedSteps.join(', ')}]`);
         }
@@ -2012,6 +2003,25 @@ export default class CursorFlow {
         
         this.debugLog(`Handling Step Invalidation: ${reason}`);
         this.stopValidationLoop(); // Ensure loop is stopped
+
+        // Get current step information for more detailed tracking
+        const currentStepIndex = this.state.currentStep;
+        const currentStepInfo = this.sortedSteps[currentStepIndex];
+        
+        // Track element not found error if we're actively tracking
+        if (this.executionTracker.isActive() && this.state.recordingId) {
+            const stepDetails = currentStepInfo 
+                ? `Step ${currentStepIndex} (position: ${currentStepInfo.position})`
+                : `Step ${currentStepIndex}`;
+                
+            this.executionTracker.trackAbandonment(
+                'element_not_found',
+                `Element validation failed: ${reason}. ${stepDetails}`
+            ).catch(error => {
+                console.warn(`Failed to track element validation failure: ${error}`);
+                // Continue with stop even if tracking fails
+            });
+        }
 
         // Show notification similar to handleNavigation's failure case
         CursorFlowUI.showNotification({

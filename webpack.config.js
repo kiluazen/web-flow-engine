@@ -33,7 +33,7 @@ module.exports = {
     library: {
       name: 'CursorFlow',
       type: 'umd',
-      export: 'default'
+      // export: 'default'
     },
     globalObject: 'this',
     clean: true
@@ -41,8 +41,7 @@ module.exports = {
   plugins: [
     new CopyPlugin({
       patterns: [
-        { from: 'assets', to: 'assets' },
-        { from: 'src/build-dom-tree.js', to: 'build-dom-tree.js' }
+        { from: 'assets', to: 'assets' }
       ]
     })
   ],
