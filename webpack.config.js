@@ -31,7 +31,7 @@ module.exports = {
     filename: 'flow.js',
     path: path.resolve(__dirname, 'dist'),
     library: {
-      name: 'CursorFlow',
+      name: 'Hyphenbox',
       type: 'umd',
       // export: 'default'
     },
